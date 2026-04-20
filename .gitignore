@@ -1,0 +1,14 @@
+venv/
+__pycache__/
+*.pyc
+*.db
+*.sqlite3
+.env
+.DS_Store
+logs/
+lyrics_cache/
+lyrics/
+album_art_cache/
+cadence_config.json
+venv/
+__pycache__/
