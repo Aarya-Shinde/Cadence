@@ -1,7 +1,7 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, 
-    QTableWidgetItem, QLineEdit, QLabel, QMenu
+    QTableWidgetItem, QLineEdit, QLabel, QMenu, QPushButton
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor, QIcon
@@ -18,6 +18,7 @@ class PlaylistWidget(QWidget):
     song_double_clicked = pyqtSignal(dict)  # Emit song dict
     song_right_clicked = pyqtSignal(dict, object)  # Song dict and mouse position
     song_delete_clicked = pyqtSignal(dict)  # Emitted when delete button clicked
+    song_favorite_toggled = pyqtSignal(dict)  # Emitted when heart clicked
     
     def __init__(self):
         super().__init__()
@@ -58,7 +59,7 @@ class PlaylistWidget(QWidget):
         self.table.setColumnWidth(2, 150)  # Album
         self.table.setColumnWidth(3, 80)   # Duration
         self.table.setColumnWidth(4, 120)  # Date Added
-        self.table.setColumnWidth(5, 60)   # Actions
+        self.table.setColumnWidth(5, 85)   # Actions (widened for two buttons)
         
         # Enable sorting
         self.table.setSortingEnabled(True)
@@ -120,8 +121,23 @@ class PlaylistWidget(QWidget):
             date_item = QTableWidgetItem(str(song['date_added']))
             self.table.setItem(row, 4, date_item)
             
-            # Actions (Delete button)
-            from PyQt6.QtWidgets import QPushButton
+            # Actions cell (Fav + Delete)
+            actions_widget = QWidget()
+            actions_layout = QHBoxLayout(actions_widget)
+            actions_layout.setContentsMargins(4, 0, 4, 0)
+            actions_layout.setSpacing(4)
+            
+            # Favorite button
+            fav_btn = QPushButton()
+            is_fav = bool(song.get('favorite', 0))
+            fav_btn.setIcon(get_icon("heart-filled" if is_fav else "heart"))
+            fav_btn.setToolTip("Mark as Favorite" if not is_fav else "Unfavorite")
+            fav_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            fav_btn.setStyleSheet("QPushButton { border: none; background: transparent; padding: 2px; }")
+            fav_btn.clicked.connect(lambda checked, s=song: self.song_favorite_toggled.emit(s))
+            actions_layout.addWidget(fav_btn)
+            
+            # Delete button
             delete_btn = QPushButton()
             delete_btn.setIcon(get_icon("trash"))
             delete_btn.setToolTip("Delete Song")
@@ -130,6 +146,7 @@ class PlaylistWidget(QWidget):
                 QPushButton {
                     border: none;
                     background: transparent;
+                    padding: 2px;
                 }
                 QPushButton:hover {
                     background-color: rgba(255, 60, 60, 0.2);
@@ -137,10 +154,12 @@ class PlaylistWidget(QWidget):
                 }
             """)
             delete_btn.clicked.connect(lambda checked, s=song: self.song_delete_clicked.emit(s))
-            self.table.setCellWidget(row, 5, delete_btn)
+            actions_layout.addWidget(delete_btn)
             
-            # Store song data in row
-            for col in range(6):
+            self.table.setCellWidget(row, 5, actions_widget)
+            
+            # Store song data in row items for easy access
+            for col in range(5):
                 item = self.table.item(row, col)
                 if item:
                     item.song_data = song
@@ -182,8 +201,8 @@ class PlaylistWidget(QWidget):
     def highlight_song(self, song_id: int):
         """Highlight a song by ID"""
         for row in range(self.table.rowCount()):
-            item = self.table.item(row, 0)
-            if item.song_data['id'] == song_id:
+            item = self.table.item(row, 0) # Title column
+            if item and hasattr(item, 'song_data') and item.song_data['id'] == song_id:
                 self.table.selectRow(row)
                 self.table.scrollToItem(item)
                 break

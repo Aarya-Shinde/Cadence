@@ -69,6 +69,7 @@ class EnhancedPlayerWidget(QWidget):
     progress_seek = pyqtSignal(float)
     shuffle_toggled = pyqtSignal(bool)
     repeat_toggled = pyqtSignal(bool)
+    favorite_toggled = pyqtSignal() # Emitted when heart in player bar is clicked
     
     def __init__(self):
         super().__init__()
@@ -140,15 +141,42 @@ class EnhancedPlayerWidget(QWidget):
         info_layout = QVBoxLayout()
         info_layout.setSpacing(4)
         
+        # Title and Favorite button in a row
+        title_row = QHBoxLayout()
+        title_row.setSpacing(8)
+        title_row.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        
         self.now_playing_title = QLabel("No song playing")
         self.now_playing_title.setFont(Fonts.BODY_LARGE)
         self.now_playing_title.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-weight: 500;")
+        title_row.addWidget(self.now_playing_title)
+        
+        # Favorite button (now after title)
+        self.fav_btn = QPushButton()
+        self.fav_btn.setIcon(get_icon("heart"))
+        self.fav_btn.setIconSize(QSize(28, 28))
+        self.fav_btn.setFixedSize(40, 40)
+        self.fav_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.fav_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {Colors.TEXT_TERTIARY};
+            }}
+            QPushButton:hover {{
+                color: {Colors.ACCENT_PRIMARY};
+            }}
+        """)
+        self.fav_btn.clicked.connect(self.favorite_toggled.emit)
+        title_row.addWidget(self.fav_btn)
+        title_row.addStretch()
+        
+        info_layout.addLayout(title_row)
         
         self.now_playing_artist = QLabel("Select a song to play")
         self.now_playing_artist.setFont(Fonts.BODY_SMALL)
         self.now_playing_artist.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
         
-        info_layout.addWidget(self.now_playing_title)
         info_layout.addWidget(self.now_playing_artist)
         
         left_layout.addLayout(info_layout)
@@ -390,10 +418,16 @@ class EnhancedPlayerWidget(QWidget):
             }}
         """
     
-    def set_now_playing(self, title: str, artist: str):
+    def set_now_playing(self, title: str, artist: str, is_favorite: bool = False):
         """Update now playing display"""
         self.now_playing_title.setText(title)
         self.now_playing_artist.setText(artist)
+        self.update_favorite_state(is_favorite)
+        
+    def update_favorite_state(self, is_favorite: bool):
+        """Update the heart icon state"""
+        self.fav_btn.setIcon(get_icon("heart-filled" if is_favorite else "heart"))
+        self.fav_btn.setToolTip("Unfavorite" if is_favorite else "Mark as Favorite")
     
     def set_total_duration(self, seconds: int):
         """Set total song duration"""

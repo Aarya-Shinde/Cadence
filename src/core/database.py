@@ -31,9 +31,23 @@ class MusicDatabase:
                 duration INTEGER,
                 path TEXT UNIQUE,
                 date_added TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                play_count INTEGER DEFAULT 0
+                play_count INTEGER DEFAULT 0,
+                favorite INTEGER DEFAULT 0
             )
         ''')
+        
+        # Migration: Check if favorite column exists
+        cursor.execute("PRAGMA table_info(songs)")
+        columns = [info[1] for info in cursor.fetchall()]
+        
+        if 'favorite' not in columns:
+            if 'is_favorite' in columns:
+                cursor.execute('ALTER TABLE songs RENAME COLUMN is_favorite TO favorite')
+                logger.info("Migrated database: renamed is_favorite to favorite")
+            else:
+                cursor.execute('ALTER TABLE songs ADD COLUMN favorite INTEGER DEFAULT 0')
+                logger.info("Migrated database: added favorite column")
+            
         conn.commit()
         conn.close()
     
@@ -93,8 +107,8 @@ class MusicDatabase:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            cursor.execute('SELECT id, title, artist, album, duration, path, date_added FROM songs ORDER BY artist, album, title')
-            columns = ['id', 'title', 'artist', 'album', 'duration', 'path', 'date_added']
+            cursor.execute('SELECT id, title, artist, album, duration, path, date_added, favorite FROM songs ORDER BY artist, album, title')
+            columns = ['id', 'title', 'artist', 'album', 'duration', 'path', 'date_added', 'favorite']
             songs = [dict(zip(columns, row)) for row in cursor.fetchall()]
             conn.close()
             return songs
@@ -151,6 +165,24 @@ class MusicDatabase:
             logger.info("All songs cleared from database")
         except Exception as e:
             logger.error(f"Error clearing songs: {e}")
+
+    def toggle_favorite(self, song_id: int) -> bool:
+        """Toggle favorite status for a song"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute('UPDATE songs SET favorite = NOT favorite WHERE id = ?', (song_id,))
+            conn.commit()
+            
+            # Get new value
+            cursor.execute('SELECT favorite FROM songs WHERE id = ?', (song_id,))
+            new_val = bool(cursor.fetchone()[0])
+            
+            conn.close()
+            return new_val
+        except Exception as e:
+            logger.error(f"Error toggling favorite: {e}")
+            return False
 
     
         conn.commit()

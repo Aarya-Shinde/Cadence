@@ -127,8 +127,9 @@ class MainWindow(QMainWindow):
         
         # State
         self.current_song = None
-        self.playlist = []
         self.current_index = -1
+        self.playlist = []
+        self.show_only_favorites = False
         self.music_folder = self.config.get('music_folder')
         
         # Setup UI
@@ -281,6 +282,32 @@ class MainWindow(QMainWindow):
         self.header_download_btn.clicked.connect(self.on_download_song)
         layout.addWidget(self.header_download_btn)
         
+        # View Favorites toggle button
+        self.view_favs_btn = QPushButton()
+        self.view_favs_btn.setIcon(get_icon("heart"))
+        self.view_favs_btn.setFixedSize(32, 32)
+        self.view_favs_btn.setCheckable(True)
+        self.view_favs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.view_favs_btn.setToolTip("Show Favorites Only")
+        self.view_favs_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1.5px solid {Colors.ACCENT_PRIMARY};
+                border-radius: 6px;
+                padding: 4px;
+                color: {Colors.ACCENT_PRIMARY};
+            }}
+            QPushButton:hover {{
+                background: {Colors.ACCENT_HOVER};
+            }}
+            QPushButton:checked {{
+                background: {Colors.ACCENT_PRIMARY};
+                color: {Colors.BACKGROUND_PRIMARY};
+            }}
+        """)
+        self.view_favs_btn.clicked.connect(self.on_toggle_favorites_view)
+        layout.addWidget(self.view_favs_btn)
+        
         # Toggle playlist button
         self.toggle_playlist_btn = QPushButton()
         self.toggle_playlist_btn.setIcon(get_icon(Icons.MUSIC))
@@ -383,10 +410,12 @@ class MainWindow(QMainWindow):
         self.player_widget.previous_clicked.connect(self.on_previous)
         self.player_widget.volume_changed.connect(self.on_volume_changed)
         self.player_widget.progress_seek.connect(self.on_seek)
+        self.player_widget.favorite_toggled.connect(self.on_player_favorite_toggled)
         
         # Playlist signals
         self.playlist_widget.song_double_clicked.connect(self.on_song_selected)
         self.playlist_widget.song_delete_clicked.connect(self.on_delete_song)
+        self.playlist_widget.song_favorite_toggled.connect(self.on_favorite_toggled)
         
         # Audio player signals
         self.player.on_track_ended = self.on_track_ended
@@ -394,7 +423,15 @@ class MainWindow(QMainWindow):
     
     def load_playlist(self):
         """Load songs from database"""
-        self.playlist = self.db.get_all_songs()
+        all_songs = self.db.get_all_songs()
+        
+        if self.show_only_favorites:
+            self.playlist = [s for s in all_songs if s.get('favorite')]
+            self.status_label.setText(f"Viewing Favorites ({len(self.playlist)})")
+        else:
+            self.playlist = all_songs
+            self.status_label.setText("Library")
+            
         self.playlist_widget.load_songs(self.playlist)
         
         count = len(self.playlist)
@@ -413,7 +450,7 @@ class MainWindow(QMainWindow):
         success = self.player.load(song['path'])
         if success:
             self.player.play()
-            self.player_widget.set_now_playing(song['title'], song['artist'])
+            self.player_widget.set_now_playing(song['title'], song['artist'], bool(song.get('favorite', 0)))
             self.player_widget.set_total_duration(song['duration'])
             self.player_widget.set_playing_state(True)
             self.playlist_widget.highlight_song(song['id'])
@@ -758,9 +795,29 @@ class MainWindow(QMainWindow):
             
             # Remove from DB
             self.db.remove_song_by_id(song['id'])
-            
             self.load_playlist()
             self.status_label.setText(f"Deleted '{song['title']}'")
+
+    def on_favorite_toggled(self, song: dict):
+        """Handle favorite toggle from playlist"""
+        new_val = self.db.toggle_favorite(song['id'])
+        song['favorite'] = new_val
+        
+        # If this is the currently playing song, update the player bar too
+        if self.current_song and self.current_song['id'] == song['id']:
+            self.current_song['favorite'] = new_val
+            self.player_widget.update_favorite_state(new_val)
+            
+        self.load_playlist() # Refresh list to respect filters
+
+    def on_player_favorite_toggled(self):
+        """Handle favorite toggle from player bar"""
+        if self.current_song:
+            new_val = self.db.toggle_favorite(self.current_song['id'])
+            self.current_song['favorite'] = new_val
+            self.player_widget.update_favorite_state(new_val)
+            
+            self.load_playlist() # Refresh list to respect filters
 
     def on_download_song(self):
         """Show the premium search & download dialog"""
@@ -776,6 +833,17 @@ class MainWindow(QMainWindow):
             
         dialog.download_finished.connect(_on_complete)
         dialog.show()
+
+    def on_toggle_favorites_view(self, checked: bool):
+        """Toggle between all songs and favorites only"""
+        self.show_only_favorites = checked
+        self.view_favs_btn.setIcon(get_icon("heart-filled" if checked else "heart"))
+        self.load_playlist()
+        
+        if checked:
+            self.status_label.setText("Showing only favorite songs")
+        else:
+            self.status_label.setText("Showing all songs")
 
     def on_toggle_playlist(self):
         """Toggle visibility of the playlist to expand the album art/lyrics view"""
