@@ -18,7 +18,7 @@ from typing import Optional, Dict, List
 from urllib.parse import quote
 import json
 
-from utils.paths import DB_PATH as _DEFAULT_DB, LYRICS_DIR as _DEFAULT_LYRICS_DIR
+from utils.paths import DB_PATH as _DEFAULT_DB, get_lyrics_dir
 
 logger = logging.getLogger(__name__)
 
@@ -469,8 +469,8 @@ class LyricsCache:
         """
         try:
             if not local_path:
-                lyrics_dir = Path(_DEFAULT_LYRICS_DIR)
-                lyrics_dir.mkdir(exist_ok=True)
+                lyrics_dir = Path(get_lyrics_dir())
+                lyrics_dir.mkdir(exist_ok=True, parents=True)
                 
                 # Sanitize name
                 clean_title = "".join([c for c in title if c.isalnum() or c in (' ', '-', '_')]).strip()
