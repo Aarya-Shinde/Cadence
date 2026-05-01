@@ -426,11 +426,12 @@ class SongDetailsPanel(QWidget):
             QFrame {{
                 background-color: {Colors.BACKGROUND_TERTIARY};
                 border-radius: 12px;
-                padding: 8px 12px;
+                padding: 4px 12px;
             }}
         """)
         info_layout = QVBoxLayout()
-        info_layout.setSpacing(4)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(2)
         
         self.song_title = QLabel("No song")
         self.song_title.setFont(Fonts.HEADING_SMALL)
