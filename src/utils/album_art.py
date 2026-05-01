@@ -16,7 +16,7 @@ from PIL import Image
 from io import BytesIO
 import hashlib
 
-from utils.paths import DB_PATH as _DEFAULT_DB, ALBUM_ART_DIR as _DEFAULT_ART_DIR
+from utils.paths import DB_PATH as _DEFAULT_DB, get_album_art_dir
 
 logger = logging.getLogger(__name__)
 
@@ -155,7 +155,7 @@ class AlbumArtExtractor:
 class AlbumArtCache:
     """Manage album art cache"""
     
-    def __init__(self, cache_dir: str = _DEFAULT_ART_DIR, 
+    def __init__(self, cache_dir: str = None, 
                  db_path: str = _DEFAULT_DB):
         """Initialize album art cache
         
@@ -163,8 +163,8 @@ class AlbumArtCache:
             cache_dir: Directory to cache images
             db_path: Database path
         """
-        self.cache_dir = Path(cache_dir)
-        self.cache_dir.mkdir(exist_ok=True)
+        self.cache_dir = Path(cache_dir) if cache_dir else Path(get_album_art_dir())
+        self.cache_dir.mkdir(exist_ok=True, parents=True)
         self.db_path = db_path
         self.init_db()
     
@@ -227,9 +227,18 @@ class AlbumArtCache:
             image_hash = hashlib.md5(image_data).hexdigest()
             
             # Check if already cached
-            if self._get_by_hash(image_hash):
-                logger.debug(f"Image already in cache: {image_hash}")
-                return None
+            existing_path = self._get_by_hash(image_hash)
+            if existing_path:
+                if Path(existing_path).exists():
+                    logger.debug(f"Image already in cache: {image_hash}")
+                    return existing_path
+                else:
+                    # Clean up orphaned DB entry so we can re-insert
+                    conn = sqlite3.connect(self.db_path)
+                    cursor = conn.cursor()
+                    cursor.execute("DELETE FROM album_art WHERE hash = ?", (image_hash,))
+                    conn.commit()
+                    conn.close()
             
             # Save image
             filename = f"{song_id}_{artist}_{album}.png"
@@ -365,7 +374,7 @@ class AlbumArtCache:
 class AlbumArtManager:
     """High-level album art management"""
     
-    def __init__(self, cache_dir: str = _DEFAULT_ART_DIR,
+    def __init__(self, cache_dir: str = None,
                  db_path: str = _DEFAULT_DB):
         """Initialize manager
         
@@ -376,7 +385,34 @@ class AlbumArtManager:
         self.extractor = AlbumArtExtractor()
         self.cache = AlbumArtCache(cache_dir, db_path)
     
-    def get_art(self, song_id: int, file_path: str, 
+    def _fetch_from_itunes(self, title: str, artist: str) -> Optional[bytes]:
+        try:
+            import requests
+            import urllib.parse
+            
+            if not title or title.lower() in ("unknown", "unknown title"):
+                return None
+                
+            query = f"{title} {artist}".strip()
+            url = f"https://itunes.apple.com/search?term={urllib.parse.quote(query)}&entity=song&limit=1"
+            
+            response = requests.get(url, timeout=5)
+            data = response.json()
+            
+            if data.get('resultCount', 0) > 0:
+                result = data['results'][0]
+                art_url = result.get('artworkUrl100')
+                if art_url:
+                    hires_url = art_url.replace('100x100bb.jpg', '1000x1000bb.jpg')
+                    img_resp = requests.get(hires_url, timeout=10)
+                    if img_resp.status_code == 200:
+                        return img_resp.content
+        except Exception as e:
+            logger.warning(f"Failed to fetch iTunes art fallback: {e}")
+            
+        return None
+
+    def get_art(self, song_id: int, file_path: str, title: str = "Unknown",
                 album: str = "Unknown", artist: str = "Unknown",
                 auto_extract: bool = True) -> Optional[str]:
         """Get album art, extracting if necessary
@@ -384,6 +420,7 @@ class AlbumArtManager:
         Args:
             song_id: Song ID
             file_path: Audio file path
+            title: Song title
             album: Album name
             artist: Artist name
             auto_extract: Auto-extract if not cached
@@ -399,12 +436,41 @@ class AlbumArtManager:
         # Extract if requested
         if auto_extract:
             image_data = self.extractor.extract(file_path)
+            
+            source = "file"
+            if not image_data:
+                # Fallback to iTunes API
+                is_unknown_title = not title or title.lower() in ("unknown", "unknown title")
+                search_title = Path(file_path).stem if is_unknown_title else title
+                
+                search_artist = artist if (artist and artist.lower() not in ("unknown", "unknown artist")) else ""
+                
+                image_data = self._fetch_from_itunes(search_title, search_artist)
+                source = "online"
+                
+                # Optionally embed the new artwork back into the file
+                if image_data:
+                    try:
+                        import mutagen
+                        from mutagen.id3 import APIC
+                        audio = mutagen.File(str(file_path))
+                        if audio is not None:
+                            if hasattr(audio, 'tags') and audio.tags is None:
+                                audio.add_tags()
+                            if hasattr(audio, 'tags') and hasattr(audio.tags, 'add'):
+                                audio.tags.add(APIC(
+                                    encoding=3, mime='image/jpeg', type=3, desc='Cover', data=image_data
+                                ))
+                                audio.save()
+                    except Exception as e:
+                        logger.debug(f"Failed to embed fetched iTunes art: {e}")
+                        
             if image_data:
-                return self.cache.save_art(song_id, album, artist, image_data)
+                return self.cache.save_art(song_id, album, artist, image_data, source=source)
         
         return None
     
-    def get_art_async(self, song_id: int, file_path: str,
+    def get_art_async(self, song_id: int, file_path: str, title: str = "Unknown",
                      album: str = "Unknown", artist: str = "Unknown",
                      callback=None):
         """Get album art asynchronously
@@ -412,6 +478,7 @@ class AlbumArtManager:
         Args:
             song_id: Song ID
             file_path: Audio file path
+            title: Song title
             album: Album name
             artist: Artist name
             callback: Callback function
@@ -419,7 +486,7 @@ class AlbumArtManager:
         import threading
         
         def extract_thread():
-            result = self.get_art(song_id, file_path, album, artist)
+            result = self.get_art(song_id, file_path, title, album, artist)
             if callback:
                 callback(result)
         
