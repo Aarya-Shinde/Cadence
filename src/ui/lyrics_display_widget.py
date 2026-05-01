@@ -21,6 +21,7 @@ import logging
 
 from ui.style import Colors, Fonts
 from ui.icons import get_icon
+from ui.visualizer import AudioVisualizer
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ class LyricsLine(QLabel):
         self.id = -1
         
     def set_active(self, active: bool):
-        """Toggle active state with stylish coloring"""
+        """Toggle active state with stylish coloring and flexible height"""
         if active:
             # Active: White and bold (Spotify high-light)
             self.setStyleSheet(f"""
@@ -124,7 +125,7 @@ class LyricsLine(QLabel):
                     color: {Colors.TEXT_PRIMARY};
                     font-weight: 700;
                     font-size: 16pt;
-                    padding: 8px 0;
+                    padding: 10px 0;
                     background: transparent;
                 }}
             """)
@@ -135,10 +136,13 @@ class LyricsLine(QLabel):
                     color: rgba(255, 255, 255, 0.4);
                     font-weight: 400;
                     font-size: 14pt;
-                    padding: 6px 0;
+                    padding: 8px 0;
                     background: transparent;
                 }}
             """)
+        # Ensure it re-calculates height for wrapping
+        self.setMinimumHeight(0)
+        self.adjustSize()
 
 class LyricsDisplay(QWidget):
     """Modern synchronized lyrics scroller"""
@@ -177,7 +181,7 @@ class LyricsDisplay(QWidget):
         self.content = QWidget()
         self.content.setStyleSheet("background: transparent;")
         self.content_layout = QVBoxLayout(self.content)
-        self.content_layout.setContentsMargins(30, 200, 30, 200) # Large vertical margins for centering
+        self.content_layout.setContentsMargins(10, 200, 10, 200) # Reduced horizontal margins (10 instead of 30)
         self.content_layout.setSpacing(12)
         self.content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         
@@ -247,6 +251,11 @@ class LyricsDisplay(QWidget):
         self.synced_data = []
         self.current_line_idx = -1
         
+        # IMPORTANT: Force width sync before adding widgets to enable word-wrap
+        v_width = self.scroll.viewport().width()
+        if v_width > 0:
+            self.content.setFixedWidth(v_width)
+        
         # 1. Add Track Header (Title & Artist)
         title_item = QLabel(title)
         title_item.setFont(Fonts.HEADING_LARGE)
@@ -288,11 +297,27 @@ class LyricsDisplay(QWidget):
         # Add stretch at start/end to allow centering
         self.content_layout.addStretch()
         
-        # Force layout update so widget positions are calculated immediately
-        self.content.adjustSize()
-        
         # Reset to beginning
         QTimer.singleShot(100, lambda: self.update_time(0))
+    
+    def resizeEvent(self, event):
+        """Force content width to viewport for word-wrap stability"""
+        super().resizeEvent(event)
+        self._sync_content_width()
+
+    def showEvent(self, event):
+        """Ensure width is synced when first shown"""
+        super().showEvent(event)
+        self._sync_content_width()
+
+    def _sync_content_width(self):
+        """Synchronize inner content width to scroll viewport"""
+        v_width = self.scroll.viewport().width()
+        if v_width > 0:
+            self.content.setFixedWidth(v_width)
+            # Update all labels to re-wrap
+            for widget in self.line_widgets:
+                widget.adjustSize()
 
     def update_time(self, current_time: float):
         """Update active line based on music progress"""
@@ -418,38 +443,43 @@ class SongDetailsPanel(QWidget):
         self.album_art = AlbumArtDisplay(size=400)
         left_layout.addWidget(self.album_art)
         
-        # Song info
+        # Audio Visualizer (Dual-Layer Scrolling Waveform)
+        self.visualizer = AudioVisualizer(density=140)
+        self.visualizer.setFixedWidth(400)
+        self.visualizer.setFixedHeight(80) # Reduced to prevent window jumps
+        left_layout.addWidget(self.visualizer)
+        
+        # Song info (Side-by-side)
         self.info_frame = QFrame()
-        self.info_frame.setFixedWidth(400)  # Match album art width
+        self.info_frame.setFixedWidth(400)
+        self.info_frame.setFixedHeight(45) # LOCK HEIGHT to prevent window jumps
         self.info_frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {Colors.BACKGROUND_TERTIARY};
                 border-radius: 12px;
-                padding: 4px 12px;
+                padding: 0px 16px;
             }}
         """)
-        info_layout = QVBoxLayout()
+        info_layout = QHBoxLayout() # Changed to Horizontal
         info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(2)
+        info_layout.setSpacing(12)
         
         self.song_title = QLabel("No song")
         self.song_title.setFont(Fonts.HEADING_SMALL)
-        self.song_title.setWordWrap(True)
         self.song_title.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-weight: 600;")
         info_layout.addWidget(self.song_title)
         
+        # Separator dot
+        self.info_sep = QLabel("•")
+        self.info_sep.setStyleSheet(f"color: {Colors.TEXT_TERTIARY};")
+        info_layout.addWidget(self.info_sep)
+        
         self.song_artist = QLabel("")
         self.song_artist.setFont(Fonts.BODY_SMALL)
-        self.song_artist.setWordWrap(True)
         self.song_artist.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
         info_layout.addWidget(self.song_artist)
         
-        self.song_album = QLabel("")
-        self.song_album.setFont(Fonts.BODY_SMALL)
-        self.song_album.setWordWrap(True)
-        self.song_album.setStyleSheet(f"color: {Colors.TEXT_TERTIARY};")
-        info_layout.addWidget(self.song_album)
-        
+        info_layout.addStretch()
         self.info_frame.setLayout(info_layout)
         left_layout.addWidget(self.info_frame)
         left_layout.addStretch()
@@ -483,7 +513,6 @@ class SongDetailsPanel(QWidget):
         self._current_song_id = song_info.get("id", -1)
         self.song_title.setText(song_info.get("title", "Unknown"))
         self.song_artist.setText(song_info.get("artist", "Unknown Artist"))
-        self.song_album.setText(song_info.get("album", "Unknown Album"))
         
         # Load album art
         if art_path:
