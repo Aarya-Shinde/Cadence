@@ -216,6 +216,14 @@ class MusicDownloader:
                 logger.info(f"Downloading: {url}")
                 ydl.download([url])
 
+            # Apply high-res iTunes art if possible, else keep YouTube thumbnail
+            if result_path and result_path.exists():
+                state.status = "processing"
+                state.filename = "Fetching high-res album art..."
+                if progress_callback:
+                    progress_callback(state)
+                self._enrich_with_itunes_art(result_path)
+
             state.status = "done"
             if progress_callback:
                 progress_callback(state)
@@ -230,3 +238,81 @@ class MusicDownloader:
                 progress_callback(state)
             logger.error(f"Download failed for '{url}': {exc}")
             return None
+
+    def _enrich_with_itunes_art(self, file_path: Path):
+        """Try to fetch high-res album art from iTunes and embed it."""
+        try:
+            import mutagen
+            from mutagen.id3 import APIC
+            import requests
+            import urllib.parse
+            
+            audio = mutagen.File(str(file_path))
+            if audio is None:
+                return
+                
+            title = None
+            artist = None
+            
+            if hasattr(audio, 'tags') and audio.tags:
+                tags = audio.tags
+                if 'TIT2' in tags:
+                    title = str(tags['TIT2'])
+                if 'TPE1' in tags:
+                    artist = str(tags['TPE1'])
+            
+            # Fallback to filename parsing
+            if not title or not artist:
+                name = file_path.stem.replace('_', ' ')
+                if '-' in name:
+                    parts = name.split('-', 1)
+                    artist = parts[0].strip()
+                    title = parts[1].strip()
+                else:
+                    title = name
+                    artist = ""
+                    
+            if not title:
+                return
+                
+            query = f"{title} {artist}".strip()
+            url = f"https://itunes.apple.com/search?term={urllib.parse.quote(query)}&entity=song&limit=1"
+            
+            logger.info(f"Searching iTunes for high-res art: {query}")
+            response = requests.get(url, timeout=5)
+            data = response.json()
+            
+            if data.get('resultCount', 0) > 0:
+                result = data['results'][0]
+                art_url = result.get('artworkUrl100')
+                if art_url:
+                    # Request 1000x1000 for maximum quality
+                    hires_url = art_url.replace('100x100bb.jpg', '1000x1000bb.jpg')
+                    
+                    logger.info(f"Downloading iTunes art: {hires_url}")
+                    img_resp = requests.get(hires_url, timeout=10)
+                    
+                    if img_resp.status_code == 200:
+                        img_data = img_resp.content
+                        
+                        if hasattr(audio, 'tags') and audio.tags is None:
+                            audio.add_tags()
+                            
+                        # Remove existing YouTube thumbnail APIC frames
+                        if hasattr(audio, 'tags') and audio.tags:
+                            keys_to_remove = [k for k in audio.tags.keys() if k.startswith('APIC')]
+                            for k in keys_to_remove:
+                                audio.tags.pop(k)
+                                
+                            # Add high-res APIC frame
+                            audio.tags.add(APIC(
+                                encoding=3,  # utf-8
+                                mime='image/jpeg',
+                                type=3,  # cover front
+                                desc='Cover',
+                                data=img_data
+                            ))
+                            audio.save()
+                            logger.info("Successfully embedded high-res iTunes art.")
+        except Exception as e:
+            logger.warning(f"Failed to fetch/embed iTunes art: {e}")
