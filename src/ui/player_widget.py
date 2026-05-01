@@ -100,13 +100,13 @@ class EnhancedPlayerWidget(QWidget):
         
         self.progress_slider = ClickSlider(Qt.Orientation.Horizontal)
         self.progress_slider.setRange(0, 1000)
-        self.progress_slider.setPageStep(10)
+        self.progress_slider.setValue(0)
         self.progress_slider.setCursor(Qt.CursorShape.PointingHandCursor)
         self.progress_slider.setStyleSheet(self._get_progress_style())
         self.progress_slider.sliderMoved.connect(self._on_progress_seek)
-        self.progress_slider.sliderPressed.connect(lambda: setattr(self, 'is_seeking', True))
-        self.progress_slider.sliderReleased.connect(lambda: setattr(self, 'is_seeking', False))
-        progress_layout.addWidget(self.progress_slider, 1)
+        self.progress_slider.sliderPressed.connect(self._on_progress_pressed)
+        self.progress_slider.sliderReleased.connect(self._on_progress_released)
+        progress_layout.addWidget(self.progress_slider)
         
         self.duration_label = QLabel("0:00")
         self.duration_label.setFont(Fonts.BODY_TINY)
@@ -124,11 +124,11 @@ class EnhancedPlayerWidget(QWidget):
         left_layout = QHBoxLayout(left_widget)
         left_layout.setContentsMargins(0, 0, 0, 0)
         # Album art placeholder
-        self.art_label = QLabel()
-        self.art_label.setPixmap(get_icon(Icons.MUSIC).pixmap(32, 32))
-        self.art_label.setFixedSize(48, 48)
-        self.art_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.art_label.setStyleSheet(f"""
+        self.album_art_label = QLabel()
+        self.album_art_label.setPixmap(get_icon(Icons.MUSIC).pixmap(32, 32))
+        self.album_art_label.setFixedSize(48, 48)
+        self.album_art_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.album_art_label.setStyleSheet(f"""
             QLabel {{
                 background-color: {Colors.BACKGROUND_TERTIARY};
                 border-radius: 4px;
@@ -136,7 +136,7 @@ class EnhancedPlayerWidget(QWidget):
                 padding: 8px;
             }}
         """)
-        left_layout.addWidget(self.art_label)
+        left_layout.addWidget(self.album_art_label)
         
         info_layout = QVBoxLayout()
         info_layout.setSpacing(4)
@@ -459,6 +459,13 @@ class EnhancedPlayerWidget(QWidget):
             seconds = (value / 1000.0) * self.total_time
             self.progress_seek.emit(seconds)
             self.time_label.setText(self._format_time(seconds))
+
+    def _on_progress_pressed(self):
+        self.is_seeking = True
+
+    def _on_progress_released(self):
+        self.is_seeking = False
+        self._on_progress_seek(self.progress_slider.value())
     
     def _on_volume_changed(self, value):
         """Handle volume change"""
