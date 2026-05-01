@@ -658,7 +658,8 @@ class LyricsManager:
             self.delete_lyrics(song_id)
 
         def fetch_thread():
-            result = self.fetch_and_cache(song_id, title, artist)
+            # Use get_lyrics which checks cache FIRST before network
+            result = self.get_lyrics(song_id, title, artist, auto_fetch=True)
             if callback:
                 callback(result)
         
