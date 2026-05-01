@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QLabel, QMenu, QMessageBox, QFileDialog, QFrame,
     QPushButton, QLineEdit
 )
-from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal, QSize
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QColor, QKeySequence, QShortcut
 import logging
 import threading
@@ -174,8 +174,8 @@ class MainWindow(QMainWindow):
         main_layout.setSpacing(0)
         
         # ===== HEADER =====
-        header = self._create_header()
-        main_layout.addWidget(header)
+        self.header = self._create_header()
+        main_layout.addWidget(self.header)
         
         # ===== MAIN CONTENT =====
         content_layout = QHBoxLayout()
@@ -246,7 +246,7 @@ class MainWindow(QMainWindow):
         self.status_label.setFont(Fonts.BODY_SMALL)
         self.status_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
         layout.addWidget(self.status_label)
-        
+
         layout.addStretch()
         
         # Song count
@@ -256,7 +256,9 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.song_count_label)
 
         # Download button in header
-        self.header_download_btn = QPushButton("Download Song")
+        self.header_download_btn = QPushButton(" Download Song")
+        self.header_download_btn.setIcon(get_icon("download", color="white"))
+        self.header_download_btn.setIconSize(QSize(16, 16))
         self.header_download_btn.setFont(Fonts.BODY_SMALL)
         self.header_download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.header_download_btn.setFixedHeight(32)
@@ -310,7 +312,7 @@ class MainWindow(QMainWindow):
         
         # Toggle playlist button
         self.toggle_playlist_btn = QPushButton()
-        self.toggle_playlist_btn.setIcon(get_icon(Icons.MUSIC))
+        self.toggle_playlist_btn.setIcon(get_icon("library", color="white"))
         self.toggle_playlist_btn.setFixedSize(32, 32)
         self.toggle_playlist_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toggle_playlist_btn.setToolTip("Toggle Playlist View")
@@ -400,6 +402,42 @@ class MainWindow(QMainWindow):
         about_action = help_menu.addAction("About")
         about_action.setIcon(get_icon(Icons.INFO))
         about_action.triggered.connect(self.on_about)
+
+        # Mini Player toggle in menu bar corner (Classy Icon-only)
+        self.mini_mode_btn = QPushButton("")
+        self.mini_mode_btn.setIcon(get_icon("arrow-down-left", color="white"))
+        self.mini_mode_btn.setIconSize(QSize(16, 16))
+        self.mini_mode_btn.setFixedSize(32, 28)
+        self.mini_mode_btn.setCheckable(True)
+        self.mini_mode_btn.setFont(Fonts.BODY_SMALL)
+        self.mini_mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.mini_mode_btn.setToolTip("Switch to Compact Mode")
+        self.mini_mode_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1.5px solid {Colors.ACCENT_PRIMARY};
+                border-radius: 6px;
+                margin-right: 8px;
+                margin-top: 2px;
+                color: {Colors.ACCENT_PRIMARY};
+                font-weight: 600;
+                padding: 0 12px;
+            }}
+            QPushButton:hover {{
+                background: {Colors.ACCENT_PRIMARY};
+                color: {Colors.BACKGROUND_PRIMARY};
+            }}
+            QPushButton:checked {{
+                background: {Colors.ACCENT_PRIMARY};
+                color: {Colors.BACKGROUND_PRIMARY};
+            }}
+            QPushButton:pressed {{
+                background: {Colors.ACCENT_ACTIVE};
+                border-color: {Colors.ACCENT_ACTIVE};
+            }}
+        """)
+        self.mini_mode_btn.clicked.connect(self.on_toggle_mini_mode)
+        menubar.setCornerWidget(self.mini_mode_btn, Qt.Corner.TopRightCorner)
     
     def connect_signals(self):
         """Connect all signals"""
@@ -449,10 +487,15 @@ class MainWindow(QMainWindow):
         
         success = self.player.load(song['path'])
         if success:
-            self.player.play()
-            self.player_widget.set_now_playing(song['title'], song['artist'], bool(song.get('favorite', 0)))
+            self.on_play()
+            is_fav = bool(song.get('favorite', 0))
+            self.player_widget.set_now_playing(song['title'], song['artist'], is_fav)
+            
+            # Sync with MiniPlayer
+            if hasattr(self, 'mini_player'):
+                self.mini_player.set_song(song['title'], song['artist'], is_fav)
+                
             self.player_widget.set_total_duration(song['duration'])
-            self.player_widget.set_playing_state(True)
             self.playlist_widget.highlight_song(song['id'])
             
             # Update status
@@ -501,18 +544,28 @@ class MainWindow(QMainWindow):
         self.lyrics_manager.fetch_async(song_id, title, artist, _on_result, force=force)
     
     def on_play(self):
-        """Play button clicked"""
-        if self.current_song is None and self.playlist:
+        """Resume playback"""
+        if not self.current_song and self.playlist:
+            # Play first song if none selected
+            self.current_index = 0
             self.on_song_selected(self.playlist[0])
-        elif self.current_song:
-            self.player.play()
+            return
+
+        if self.player.play():
             self.player_widget.set_playing_state(True)
-            self.status_label.setText(" Playing...")
+            if hasattr(self, 'mini_player'):
+                self.mini_player.set_playing_state(True)
+            if hasattr(self, 'tray_play_action'):
+                self.tray_play_action.setText("Pause")
     
     def on_pause(self):
-        """Pause button clicked"""
+        """Pause playback"""
         self.player.pause()
         self.player_widget.set_playing_state(False)
+        if hasattr(self, 'mini_player'):
+            self.mini_player.set_playing_state(False)
+        if hasattr(self, 'tray_play_action'):
+            self.tray_play_action.setText("Play")
         self.status_label.setText(" Paused")
         
     def _on_play_pause_toggle(self):
@@ -531,7 +584,7 @@ class MainWindow(QMainWindow):
         if auto_next and getattr(self.player_widget, 'is_repeat', False):
             if self.current_song:
                 self.player.seek(0)
-                self.player.play()
+                self.on_play()
             return
             
         import random
@@ -630,18 +683,6 @@ class MainWindow(QMainWindow):
         self.player.set_volume(new_volume)
         self.player_widget.volume_slider.setValue(int(new_volume * 100))
         logger.info("Settings applied")
-
-    def closeEvent(self, event):
-        """Handle application closing"""
-        # Stop media keys listener
-        if hasattr(self, 'media_keys'):
-            self.media_keys.stop()
-            
-        # Save window geometry
-        self.config.set('window_width', self.width())
-        self.config.set('window_height', self.height())
-        
-        event.accept()
 
     def _setup_local_shortcuts(self):
         """Define local application shortcuts"""
@@ -799,7 +840,7 @@ class MainWindow(QMainWindow):
             self.status_label.setText(f"Deleted '{song['title']}'")
 
     def on_favorite_toggled(self, song: dict):
-        """Handle favorite toggle from playlist"""
+        """Handle favorite toggle from playlist or mini player"""
         new_val = self.db.toggle_favorite(song['id'])
         song['favorite'] = new_val
         
@@ -807,6 +848,8 @@ class MainWindow(QMainWindow):
         if self.current_song and self.current_song['id'] == song['id']:
             self.current_song['favorite'] = new_val
             self.player_widget.update_favorite_state(new_val)
+            if hasattr(self, 'mini_player'):
+                self.mini_player.set_favorite(new_val)
             
         self.load_playlist() # Refresh list to respect filters
 
@@ -816,23 +859,10 @@ class MainWindow(QMainWindow):
             new_val = self.db.toggle_favorite(self.current_song['id'])
             self.current_song['favorite'] = new_val
             self.player_widget.update_favorite_state(new_val)
+            if hasattr(self, 'mini_player'):
+                self.mini_player.set_favorite(new_val)
             
             self.load_playlist() # Refresh list to respect filters
-
-    def on_download_song(self):
-        """Show the premium search & download dialog"""
-        dialog = DownloadDialog(self, default_folder=self.music_folder or "downloads")
-        
-        # When a download completes, automatically rescan that folder
-        def _on_complete(folder):
-            self.status_label.setText("Adding new music to library...")
-            self.scanner.scan_folder_async(
-                folder,
-                completion_callback=lambda results: self._bridge.invoke(self.load_playlist)
-            )
-            
-        dialog.download_finished.connect(_on_complete)
-        dialog.show()
 
     def on_toggle_favorites_view(self, checked: bool):
         """Toggle between all songs and favorites only"""
@@ -845,16 +875,49 @@ class MainWindow(QMainWindow):
         else:
             self.status_label.setText("Showing all songs")
 
+    def on_toggle_mini_mode(self, checked: bool):
+        """Switch to standalone MiniPlayer window"""
+        if checked:
+            if not hasattr(self, 'mini_player'):
+                from ui.mini_player import MiniPlayer
+                self.mini_player = MiniPlayer()
+                self.mini_player.restore_requested.connect(self._restore_from_mini)
+                self.mini_player.play_clicked.connect(self.on_play)
+                self.mini_player.pause_clicked.connect(self.on_pause)
+                self.mini_player.next_clicked.connect(self.on_next)
+                self.mini_player.prev_clicked.connect(self.on_previous)
+                self.mini_player.favorite_toggled.connect(lambda: self.on_favorite_toggled(self.current_song) if self.current_song else None)
+            
+            # Sync current song/state
+            if self.current_song:
+                self.mini_player.set_song(
+                    self.current_song['title'], 
+                    self.current_song['artist'],
+                    bool(self.current_song.get('favorite', 0))
+                )
+            self.mini_player.set_playing_state(self.player.is_playing)
+            
+            # Show mini, hide main
+            self.hide()
+            self.mini_player.show()
+        else:
+            if hasattr(self, 'mini_player'):
+                self.mini_player.hide()
+            self.show()
+
+    def _restore_from_mini(self):
+        """Callback to return from mini mode to full UI"""
+        self.mini_mode_btn.setChecked(False)
+        self.on_toggle_mini_mode(False)
+        self.activateWindow()
+
     def on_toggle_playlist(self):
         """Toggle visibility of the playlist to expand the album art/lyrics view"""
         is_visible = self.playlist_widget.isVisible()
         self.playlist_widget.setVisible(not is_visible)
         
-        # Optionally change icon or tooltip
-        if is_visible:
-            self.toggle_playlist_btn.setToolTip("Show Playlist")
-        else:
-            self.toggle_playlist_btn.setToolTip("Hide Playlist")
+        # Update button tooltip
+        self.toggle_playlist_btn.setToolTip("Show Playlist" if is_visible else "Hide Playlist")
     
     def on_check_updates_manual(self):
         """Manual update check triggered from Help menu"""
@@ -914,6 +977,21 @@ Built with PyQt6 and pygame-mixer
         """.strip()
         
         QMessageBox.about(self, "About Cadence", about_text)
+
+    def on_download_song(self):
+        """Show the search & download dialog"""
+        dialog = DownloadDialog(self, default_folder=self.music_folder or "downloads")
+        
+        # When a download completes, automatically rescan that folder
+        def _on_complete(folder):
+            self.status_label.setText("Adding new music to library...")
+            self.scanner.scan_folder_async(
+                folder,
+                completion_callback=lambda results: self._bridge.invoke(self.load_playlist)
+            )
+            
+        dialog.download_finished.connect(_on_complete)
+        dialog.show()
     
     def closeEvent(self, event):
         """Save state and clean up on close"""
