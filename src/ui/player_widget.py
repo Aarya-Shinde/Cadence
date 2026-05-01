@@ -53,6 +53,8 @@ class Icons:
     VOLUME = "volume"
     MUTE = "volume-mute"
     MUSIC = "music"
+    SHUFFLE = "shuffle"
+    REPEAT = "repeat"
  
  
 class EnhancedPlayerWidget(QWidget):
@@ -65,6 +67,8 @@ class EnhancedPlayerWidget(QWidget):
     next_clicked = pyqtSignal()
     volume_changed = pyqtSignal(float)
     progress_seek = pyqtSignal(float)
+    shuffle_toggled = pyqtSignal(bool)
+    repeat_toggled = pyqtSignal(bool)
     
     def __init__(self):
         super().__init__()
@@ -75,6 +79,8 @@ class EnhancedPlayerWidget(QWidget):
         self.current_time = 0
         self.total_time = 0
         self.is_seeking = False
+        self.is_shuffle = False
+        self.is_repeat = False
     
     def setup_ui(self):
         """Create enhanced player UI"""
@@ -177,6 +183,16 @@ class EnhancedPlayerWidget(QWidget):
         volume_layout.setSpacing(6)
         volume_layout.addStretch()
         
+        self.shuffle_btn = self._create_toggle_button(Icons.SHUFFLE, "Shuffle")
+        self.shuffle_btn.clicked.connect(self._on_shuffle_click)
+        volume_layout.addWidget(self.shuffle_btn)
+        
+        self.repeat_btn = self._create_toggle_button(Icons.REPEAT, "Repeat")
+        self.repeat_btn.clicked.connect(self._on_repeat_click)
+        volume_layout.addWidget(self.repeat_btn)
+        
+        volume_layout.addSpacing(10)
+        
         self.volume_icon = QPushButton()
         self.volume_icon.setIcon(get_icon(Icons.VOLUME))
         self.volume_icon.setIconSize(QSize(18, 18))
@@ -206,6 +222,33 @@ class EnhancedPlayerWidget(QWidget):
         
         main_layout.addLayout(controls_layout)
         self.setLayout(main_layout)
+        
+    def _create_toggle_button(self, icon_name: str, tooltip: str) -> QPushButton:
+        """Create a toggleable mode button (shuffle/repeat)"""
+        btn = QPushButton()
+        btn.setIcon(get_icon(icon_name))
+        btn.setIconSize(QSize(18, 18))
+        btn.setFixedSize(32, 32)
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setToolTip(tooltip)
+        btn.setCheckable(True)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: none;
+                color: {Colors.TEXT_TERTIARY};
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {Colors.BACKGROUND_TERTIARY};
+                color: {Colors.TEXT_PRIMARY};
+            }}
+            QPushButton:checked {{
+                color: {Colors.ACCENT_PRIMARY};
+                background-color: rgba(144, 98, 248, 0.15);
+            }}
+        """)
+        return btn
     
     def _create_control_button(self, icon_name: str, tooltip: str) -> QPushButton:
         """Create control button (Previous/Next)"""
@@ -388,6 +431,16 @@ class EnhancedPlayerWidget(QWidget):
         volume = value / 100.0
         self.volume_changed.emit(volume)
         self.volume_text.setText(f"{value}%")
+        
+    def _on_shuffle_click(self):
+        """Toggle shuffle"""
+        self.is_shuffle = self.shuffle_btn.isChecked()
+        self.shuffle_toggled.emit(self.is_shuffle)
+        
+    def _on_repeat_click(self):
+        """Toggle repeat"""
+        self.is_repeat = self.repeat_btn.isChecked()
+        self.repeat_toggled.emit(self.is_repeat)
     
     def set_playing_state(self, is_playing: bool):
         """Update play/pause button"""
