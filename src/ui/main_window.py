@@ -553,6 +553,7 @@ class MainWindow(QMainWindow):
 
         if self.player.play():
             self.player_widget.set_playing_state(True)
+            self.details_panel.visualizer.set_playing(True)
             if hasattr(self, 'mini_player'):
                 self.mini_player.set_playing_state(True)
             if hasattr(self, 'tray_play_action'):
@@ -562,6 +563,7 @@ class MainWindow(QMainWindow):
         """Pause playback"""
         self.player.pause()
         self.player_widget.set_playing_state(False)
+        self.details_panel.visualizer.set_playing(False)
         if hasattr(self, 'mini_player'):
             self.mini_player.set_playing_state(False)
         if hasattr(self, 'tray_play_action'):
@@ -623,9 +625,17 @@ class MainWindow(QMainWindow):
                 self.on_song_selected(self.playlist[self.current_index])
     
     def on_volume_changed(self, volume: float):
-        """Volume changed"""
+        """Volume changed (absolute)"""
         self.player.set_volume(volume)
         self.config.set('volume', volume)
+        
+    def on_mini_volume_changed(self, delta: float):
+        """Handle relative volume change from MiniPlayer scroll"""
+        current = self.config.get('volume', 0.8)
+        new_vol = max(0.0, min(1.0, current + delta))
+        self.on_volume_changed(new_vol)
+        # Update main slider too
+        self.player_widget.volume_slider.setValue(int(new_vol * 100))
     
     def on_seek(self, seconds: float):
         """Progress seek"""
@@ -643,7 +653,14 @@ class MainWindow(QMainWindow):
         """Update position and lyrics sync"""
         if self.player.is_playing:
             position = self.player.get_current_position()
+            duration = self.player.get_duration()
+            
             self.player_widget.update_progress(position)
+            
+            # Sync with MiniPlayer
+            if hasattr(self, 'mini_player') and self.mini_player.isVisible():
+                self.mini_player.update_progress(position, duration)
+                
             # SYNC LYRICS: Update lyrics highlighter
             self.details_panel.update_time(position)
     
@@ -887,6 +904,7 @@ class MainWindow(QMainWindow):
                 self.mini_player.next_clicked.connect(self.on_next)
                 self.mini_player.prev_clicked.connect(self.on_previous)
                 self.mini_player.favorite_toggled.connect(lambda: self.on_favorite_toggled(self.current_song) if self.current_song else None)
+                self.mini_player.volume_changed.connect(self.on_mini_volume_changed)
             
             # Sync current song/state
             if self.current_song:
@@ -900,6 +918,7 @@ class MainWindow(QMainWindow):
             # Show mini, hide main
             self.hide()
             self.mini_player.show()
+            self.mini_player.position_bottom_right()
         else:
             if hasattr(self, 'mini_player'):
                 self.mini_player.hide()
