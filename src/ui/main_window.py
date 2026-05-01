@@ -289,6 +289,12 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(14)
         
+        # ===== NOW PLAYING INFO =====
+        self.now_playing_label = QLabel("No song playing")
+        self.now_playing_label.setFont(Fonts.BODY_LARGE)
+        self.now_playing_label.setStyleSheet(f"color: {Colors.ACCENT_PRIMARY}; font-weight: 600;")
+        layout.addWidget(self.now_playing_label)
+        
         # ===== PLAYER WIDGET =====
         self.player_widget = EnhancedPlayerWidget()
         layout.addWidget(self.player_widget)
