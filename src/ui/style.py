@@ -87,6 +87,7 @@ class Fonts:
     HEADING_SMALL = get_font("semibold", 13)   # Card titles
     
     BODY_LARGE = get_font("regular", 12)    # Primary content
+    BODY_MEDIUM = get_font("regular", 11)   # Medium text
     BODY_REGULAR = get_font("regular", 11)  # Default text
     BODY_SMALL = get_font("regular", 10)    # Secondary text
     BODY_TINY = get_font("regular", 9)      # Captions
