@@ -207,7 +207,6 @@ class LyricsDisplay(QWidget):
         footer.addStretch()
         
         self.retry_btn = QPushButton("Retry")
-        self.retry_btn.setIcon(get_icon("trash")) # Or refresh if we had one, trash/reset works
         self.retry_btn.setToolTip("Wrong lyrics? Click to re-fetch")
         self.retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.retry_btn.setFixedWidth(80)
@@ -517,6 +516,15 @@ class SongDetailsPanel(QWidget):
     def update_time(self, seconds: float):
         """Update lyrics sync"""
         self.lyrics_display.update_time(seconds)
+        
+    def clear_song(self):
+        """Clear song information and reset to default state"""
+        self._current_song_id = -1
+        self.song_title.setText("No song playing")
+        self.song_artist.setText("")
+        self.song_album.setText("")
+        self.album_art.set_placeholder()
+        self.lyrics_display.clear()
     
     def clear(self):
         """Clear content"""
