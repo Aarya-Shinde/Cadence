@@ -1,7 +1,7 @@
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QFrame
+    QPushButton, QFrame, QProgressBar
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QPoint, QSize
 from PyQt6.QtGui import QFont, QIcon, QMouseEvent
@@ -18,6 +18,7 @@ class MiniPlayer(QWidget):
     next_clicked = pyqtSignal()
     prev_clicked = pyqtSignal()
     favorite_toggled = pyqtSignal()
+    volume_changed = pyqtSignal(float)
     
     def __init__(self, parent=None):
         super().__init__(parent, Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint)
@@ -119,6 +120,25 @@ class MiniPlayer(QWidget):
         
         layout.addLayout(content_row)
         
+        # Bottom: Slim Progress Bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setFixedHeight(2)
+        self.progress_bar.setTextVisible(False)
+        self.progress_bar.setRange(0, 1000) # Use 1000 for smooth micro-steps
+        self.progress_bar.setValue(0)
+        self.progress_bar.setStyleSheet(f"""
+            QProgressBar {{
+                background: transparent;
+                border: none;
+                margin: 0;
+                padding: 0;
+            }}
+            QProgressBar::chunk {{
+                background: {Colors.ACCENT_PRIMARY};
+            }}
+        """)
+        layout.addWidget(self.progress_bar)
+        
         self.is_playing = False
 
     def _create_btn(self, icon_name):
@@ -146,6 +166,11 @@ class MiniPlayer(QWidget):
         self.artist_label.setText(artist)
         self.set_favorite(is_fav)
 
+    def update_progress(self, current, total):
+        if total > 0:
+            val = int((current / total) * 1000)
+            self.progress_bar.setValue(val)
+
     def set_playing_state(self, playing):
         self.is_playing = playing
         self.play_btn.setIcon(get_icon("pause" if playing else "play"))
@@ -156,6 +181,14 @@ class MiniPlayer(QWidget):
         else:
             self.play_clicked.emit()
 
+    def wheelEvent(self, event):
+        """Handle mouse wheel for volume control"""
+        delta = event.angleDelta().y()
+        # Adjust volume in 5% increments
+        change = 0.05 if delta > 0 else -0.05
+        self.volume_changed.emit(change)
+        event.accept()
+
     # Mouse handling for dragging the frameless window
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -165,4 +198,39 @@ class MiniPlayer(QWidget):
     def mouseMoveEvent(self, event: QMouseEvent):
         if event.buttons() == Qt.MouseButton.LeftButton:
             self.move(event.globalPosition().toPoint() - self._drag_pos)
+            self._snap_to_edges()
             event.accept()
+
+    def _snap_to_edges(self):
+        """Snap window to screen edges if close enough (20px)"""
+        from PyQt6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        pos = self.pos()
+        snap_dist = 20
+        
+        new_x = pos.x()
+        new_y = pos.y()
+        
+        # Horizontal snap
+        if abs(pos.x() - screen.left()) < snap_dist:
+            new_x = screen.left()
+        elif abs(pos.x() + self.width() - screen.right()) < snap_dist:
+            new_x = screen.right() - self.width()
+            
+        # Vertical snap
+        if abs(pos.y() - screen.top()) < snap_dist:
+            new_y = screen.top()
+        elif abs(pos.y() + self.height() - screen.bottom()) < snap_dist:
+            new_y = screen.bottom() - self.height()
+            
+        if new_x != pos.x() or new_y != pos.y():
+            self.move(new_x, new_y)
+
+    def position_bottom_right(self):
+        """Move window to bottom right of available screen area"""
+        from PyQt6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        margin = 20
+        x = screen.right() - self.width() - margin
+        y = screen.bottom() - self.height() - margin
+        self.move(x, y)
