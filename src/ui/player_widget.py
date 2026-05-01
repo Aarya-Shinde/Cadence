@@ -80,21 +80,102 @@ class EnhancedPlayerWidget(QWidget):
         """Create enhanced player UI"""
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(16, 8, 16, 12)
-        main_layout.setSpacing(8)  # Tighter spacing to reduce height
+        main_layout.setSpacing(12)  # Balanced spacing
         
-        # ===== TOP BAR: SONG INFO & VOLUME =====
-        top_bar = QHBoxLayout()
-        top_bar.setSpacing(20)
+        # ===== PROGRESS SECTION (Top) =====
+        progress_layout = QHBoxLayout()
+        progress_layout.setSpacing(8)
         
-        # Now playing info (Left)
-        self.now_playing_label = QLabel("No song playing")
-        self.now_playing_label.setFont(Fonts.BODY_LARGE)
-        self.now_playing_label.setStyleSheet(f"color: {Colors.ACCENT_PRIMARY}; font-weight: 600;")
-        top_bar.addWidget(self.now_playing_label, 1) # Expand this side
+        self.time_label = QLabel("0:00")
+        self.time_label.setFont(Fonts.BODY_TINY)
+        self.time_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; min-width: 32px;")
+        progress_layout.addWidget(self.time_label)
         
-        # Volume group (Right - opposite side)
-        volume_layout = QHBoxLayout()
+        self.progress_slider = ClickSlider(Qt.Orientation.Horizontal)
+        self.progress_slider.setRange(0, 1000)
+        self.progress_slider.setPageStep(10)
+        self.progress_slider.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.progress_slider.setStyleSheet(self._get_progress_style())
+        self.progress_slider.sliderMoved.connect(self._on_progress_seek)
+        self.progress_slider.sliderPressed.connect(lambda: setattr(self, 'is_seeking', True))
+        self.progress_slider.sliderReleased.connect(lambda: setattr(self, 'is_seeking', False))
+        progress_layout.addWidget(self.progress_slider, 1)
+        
+        self.duration_label = QLabel("0:00")
+        self.duration_label.setFont(Fonts.BODY_TINY)
+        self.duration_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; min-width: 32px; text-align: right;")
+        progress_layout.addWidget(self.duration_label)
+        
+        main_layout.addLayout(progress_layout)
+        
+        # ===== CONTROL ROW (Bottom) =====
+        controls_layout = QHBoxLayout()
+        controls_layout.setSpacing(10)
+        
+        # Left side: Now playing info
+        left_widget = QWidget()
+        left_layout = QHBoxLayout(left_widget)
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        # Album art placeholder
+        self.art_label = QLabel()
+        self.art_label.setPixmap(get_icon(Icons.MUSIC).pixmap(32, 32))
+        self.art_label.setFixedSize(48, 48)
+        self.art_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.art_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: {Colors.BACKGROUND_TERTIARY};
+                border-radius: 4px;
+                color: {Colors.ACCENT_PRIMARY};
+                padding: 8px;
+            }}
+        """)
+        left_layout.addWidget(self.art_label)
+        
+        info_layout = QVBoxLayout()
+        info_layout.setSpacing(4)
+        
+        self.now_playing_title = QLabel("No song playing")
+        self.now_playing_title.setFont(Fonts.BODY_LARGE)
+        self.now_playing_title.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-weight: 500;")
+        
+        self.now_playing_artist = QLabel("Select a song to play")
+        self.now_playing_artist.setFont(Fonts.BODY_SMALL)
+        self.now_playing_artist.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
+        
+        info_layout.addWidget(self.now_playing_title)
+        info_layout.addWidget(self.now_playing_artist)
+        
+        left_layout.addLayout(info_layout)
+        left_layout.addStretch()
+        
+        controls_layout.addWidget(left_widget, 1) # Expand this side to match right side
+        
+        # Center: Playback controls
+        center_widget = QWidget()
+        center_layout = QHBoxLayout(center_widget)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(20)
+        
+        self.prev_btn = self._create_control_button(Icons.PREVIOUS, "Previous Track (Shift+P)")
+        self.prev_btn.clicked.connect(self.previous_clicked.emit)
+        center_layout.addWidget(self.prev_btn)
+        
+        self.play_btn = self._create_play_button()
+        self.play_btn.clicked.connect(self._on_play_pause)
+        center_layout.addWidget(self.play_btn)
+        
+        self.next_btn = self._create_control_button(Icons.NEXT, "Next Track (Shift+N)")
+        self.next_btn.clicked.connect(self.next_clicked.emit)
+        center_layout.addWidget(self.next_btn)
+        
+        controls_layout.addWidget(center_widget)
+        
+        # Right: Volume controls
+        right_widget = QWidget()
+        volume_layout = QHBoxLayout(right_widget)
+        volume_layout.setContentsMargins(0, 0, 0, 0)
         volume_layout.setSpacing(6)
+        volume_layout.addStretch()
         
         self.volume_icon = QPushButton()
         self.volume_icon.setIcon(get_icon(Icons.VOLUME))
@@ -109,7 +190,7 @@ class EnhancedPlayerWidget(QWidget):
         self.volume_slider = ClickSlider(Qt.Orientation.Horizontal)
         self.volume_slider.setRange(0, 100)
         self.volume_slider.setValue(80)
-        self.volume_slider.setFixedWidth(100) # Compact volume slider
+        self.volume_slider.setFixedWidth(100)
         self.volume_slider.setCursor(Qt.CursorShape.PointingHandCursor)
         self.volume_slider.setStyleSheet(self._get_volume_style())
         self.volume_slider.valueChanged.connect(self._on_volume_changed)
@@ -121,60 +202,9 @@ class EnhancedPlayerWidget(QWidget):
         self.volume_text.setStyleSheet(f"color: {Colors.TEXT_TERTIARY};")
         volume_layout.addWidget(self.volume_text)
         
-        top_bar.addLayout(volume_layout)
-        main_layout.addLayout(top_bar)
+        controls_layout.addWidget(right_widget, 1) # Expand to match left side width
         
-        # ===== PROGRESS SECTION (Middle) =====
-        progress_layout = QVBoxLayout()
-        progress_layout.setSpacing(2)
-        
-        time_layout = QHBoxLayout()
-        time_layout.setSpacing(8)
-        
-        self.time_label = QLabel("0:00")
-        self.time_label.setFont(Fonts.BODY_TINY)
-        self.time_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; min-width: 32px;")
-        time_layout.addWidget(self.time_label)
-        
-        self.progress_slider = ClickSlider(Qt.Orientation.Horizontal)
-        self.progress_slider.setRange(0, 1000)
-        self.progress_slider.setPageStep(10)
-        self.progress_slider.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.progress_slider.setStyleSheet(self._get_progress_style())
-        self.progress_slider.sliderMoved.connect(self._on_progress_seek)
-        self.progress_slider.sliderPressed.connect(lambda: setattr(self, 'is_seeking', True))
-        self.progress_slider.sliderReleased.connect(lambda: setattr(self, 'is_seeking', False))
-        time_layout.addWidget(self.progress_slider, 1)
-        
-        self.duration_label = QLabel("0:00")
-        self.duration_label.setFont(Fonts.BODY_TINY)
-        self.duration_label.setStyleSheet(f"color: {Colors.TEXT_SECONDARY}; min-width: 32px; text-align: right;")
-        time_layout.addWidget(self.duration_label)
-        
-        progress_layout.addLayout(time_layout)
-        main_layout.addLayout(progress_layout)
-        
-        # ===== CONTROL BUTTONS (Bottom) =====
-        controls_layout = QHBoxLayout()
-        controls_layout.setSpacing(20)
-        controls_layout.addStretch()
-        
-        self.prev_btn = self._create_control_button(Icons.PREVIOUS, "Previous Track (Shift+P)")
-        self.prev_btn.clicked.connect(self.previous_clicked.emit)
-        controls_layout.addWidget(self.prev_btn)
-        
-        self.play_btn = self._create_play_button()
-        self.play_btn.clicked.connect(self._on_play_pause)
-        controls_layout.addWidget(self.play_btn)
-        
-        # Next button
-        self.next_btn = self._create_control_button(Icons.NEXT, "Next Track (Shift+N)")
-        self.next_btn.clicked.connect(self.next_clicked.emit)
-        controls_layout.addWidget(self.next_btn)
-        
-        controls_layout.addStretch()
         main_layout.addLayout(controls_layout)
-        
         self.setLayout(main_layout)
     
     def _create_control_button(self, icon_name: str, tooltip: str) -> QPushButton:
@@ -319,7 +349,8 @@ class EnhancedPlayerWidget(QWidget):
     
     def set_now_playing(self, title: str, artist: str):
         """Update now playing display"""
-        self.now_playing_label.setText(f"{title} • {artist}")
+        self.now_playing_title.setText(title)
+        self.now_playing_artist.setText(artist)
     
     def set_total_duration(self, seconds: int):
         """Set total song duration"""

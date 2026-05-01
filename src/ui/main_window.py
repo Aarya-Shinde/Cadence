@@ -289,47 +289,6 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(14)
         
-        # ===== NOW PLAYING INFO =====
-        now_playing_layout = QHBoxLayout()
-        now_playing_layout.setSpacing(12)
-        
-        # Album art placeholder
-        art_label = QLabel()
-        art_label.setPixmap(get_icon(Icons.MUSIC).pixmap(32, 32))
-        art_label.setFixedSize(48, 48)
-        art_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        art_label.setStyleSheet(f"""
-            QLabel {{
-                background-color: {Colors.BACKGROUND_TERTIARY};
-                border-radius: 4px;
-                color: {Colors.ACCENT_PRIMARY};
-                padding: 8px;
-            }}
-        """)
-        now_playing_layout.addWidget(art_label)
-        
-        # Song info
-        info_layout = QVBoxLayout()
-        info_layout.setSpacing(4)
-        
-        self.now_playing_title = QLabel("No song playing")
-        self.now_playing_title.setFont(Fonts.BODY_LARGE)
-        self.now_playing_title.setStyleSheet(f"""
-            QLabel {{
-                color: {Colors.TEXT_PRIMARY};
-                font-weight: 500;
-            }}
-        """)
-        info_layout.addWidget(self.now_playing_title)
-        
-        self.now_playing_artist = QLabel("Select a song to play")
-        self.now_playing_artist.setFont(Fonts.BODY_SMALL)
-        self.now_playing_artist.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
-        info_layout.addWidget(self.now_playing_artist)
-        
-        now_playing_layout.addLayout(info_layout, 1)
-        layout.addLayout(now_playing_layout)
-        
         # ===== PLAYER WIDGET =====
         self.player_widget = EnhancedPlayerWidget()
         layout.addWidget(self.player_widget)
@@ -427,8 +386,7 @@ class MainWindow(QMainWindow):
             self.playlist_widget.highlight_song(song['id'])
             
             # Update header
-            self.now_playing_title.setText(song['title'])
-            self.now_playing_artist.setText(f"{song['artist']} • {song['album']}")
+            self.now_playing_label.setText(f"{song['title']} • {song['artist']}")
             self.status_label.setText(f"Now playing: {song['title']}")
 
             # ── Album art (async, non-blocking) ──────────────────────

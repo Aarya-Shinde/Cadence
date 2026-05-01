@@ -8,7 +8,8 @@ Polished download dialog with:
 
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QProgressBar, QFrame
+    QLineEdit, QPushButton, QProgressBar, QFrame,
+    QListWidget, QListWidgetItem
 )
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont
@@ -29,20 +30,23 @@ class DownloadDialog(QDialog):
     # Internal signals for thread-safe UI updates
     _progress_update = pyqtSignal(object)
     _task_done = pyqtSignal(object, str)
+    _search_done = pyqtSignal(list)
 
     def __init__(self, parent=None, default_folder: str = "downloads"):
         super().__init__(parent)
         self.default_folder = default_folder
         self._is_downloading = False
+        self._current_results = []
 
         self.setWindowTitle("Download Music")
-        self.setMinimumWidth(460)
+        self.setMinimumWidth(500)
         self.setModal(True)
         self._setup_ui()
         
         # Connect internal signals
         self._progress_update.connect(self._apply_progress)
         self._task_done.connect(self._on_done)
+        self._search_done.connect(self._on_search_done)
 
     # ------------------------------------------------------------------
     # UI
@@ -69,18 +73,48 @@ class DownloadDialog(QDialog):
         search_row.setSpacing(8)
 
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText('e.g.  "Shape of You Ed Sheeran"')
+        self.search_input.setPlaceholderText('Paste YouTube URL or search... (e.g. "Shape of You")')
         self.search_input.setFont(Fonts.BODY_REGULAR)
-        self.search_input.returnPressed.connect(self._on_download)
+        self.search_input.returnPressed.connect(self._on_search)
         search_row.addWidget(self.search_input, 1)
 
-        self.download_btn = QPushButton("Download")
-        self.download_btn.setFixedWidth(100)
-        self.download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.download_btn.clicked.connect(self._on_download)
-        search_row.addWidget(self.download_btn)
+        self.search_btn = QPushButton("Search")
+        self.search_btn.setFixedWidth(100)
+        self.search_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.search_btn.clicked.connect(self._on_search)
+        search_row.addWidget(self.search_btn)
 
         layout.addLayout(search_row)
+
+        # ── Results area ───────────────────────────────────────────────
+        self.results_list = QListWidget()
+        self.results_list.hide()
+        self.results_list.itemSelectionChanged.connect(self._on_selection_changed)
+        self.results_list.setStyleSheet(f"""
+            QListWidget {{
+                background: {Colors.BACKGROUND_SECONDARY};
+                border: 1px solid {Colors.BORDER_LIGHT};
+                border-radius: 6px;
+                padding: 4px;
+                color: {Colors.TEXT_PRIMARY};
+            }}
+            QListWidget::item {{
+                padding: 8px;
+                border-bottom: 1px solid {Colors.BACKGROUND_TERTIARY};
+            }}
+            QListWidget::item:selected {{
+                background: {Colors.BACKGROUND_TERTIARY};
+                border-left: 3px solid {Colors.ACCENT_PRIMARY};
+            }}
+        """)
+        layout.addWidget(self.results_list)
+
+        self.download_selected_btn = QPushButton("Download Selected")
+        self.download_selected_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.download_selected_btn.setEnabled(False)
+        self.download_selected_btn.hide()
+        self.download_selected_btn.clicked.connect(self._on_download_selected)
+        layout.addWidget(self.download_selected_btn)
 
         # ── Divider ────────────────────────────────────────────────────
         line = QFrame()
@@ -138,15 +172,18 @@ class DownloadDialog(QDialog):
     # Slots
     # ------------------------------------------------------------------
 
-    def _on_download(self):
+    def _on_search(self):
         query = self.search_input.text().strip()
         if not query or self._is_downloading:
             return
 
-        self._is_downloading = True
-        self.download_btn.setEnabled(False)
+        self.search_btn.setEnabled(False)
         self.search_input.setEnabled(False)
-        self.close_btn.setEnabled(False)
+        self.results_list.clear()
+        self.results_list.hide()
+        self.download_selected_btn.hide()
+        self._current_results = []
+        
         self.progress_bar.setValue(0)
         self._set_status(f'Searching for "{query}"…', Colors.TEXT_SECONDARY)
         self.speed_label.setText("")
@@ -158,12 +195,77 @@ class DownloadDialog(QDialog):
         folder = self.default_folder or "downloads"
         downloader = MusicDownloader(folder)
 
+        def _task():
+            try:
+                results = downloader.search(query)
+                self._search_done.emit(results)
+            except Exception as e:
+                logger.error(f"Search failed: {e}")
+                self._search_done.emit([])
+
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _on_search_done(self, results):
+        self.search_btn.setEnabled(True)
+        self.search_input.setEnabled(True)
+        
+        if not results:
+            self._set_status("No results found.", Colors.ERROR)
+            return
+
+        self._current_results = results
+        self.results_list.clear()
+        
+        for r in results:
+            title = r.get('title', 'Unknown Title')
+            uploader = r.get('uploader', 'Unknown Uploader')
+            duration = r.get('duration_string', '')
+            duration_str = f"[{duration}] " if duration else ""
+            item = QListWidgetItem(f"{duration_str}{title}\n{uploader}")
+            # Attach the url to the item
+            item.setData(Qt.ItemDataRole.UserRole, r.get('webpage_url'))
+            self.results_list.addItem(item)
+            
+        self.results_list.show()
+        self.download_selected_btn.show()
+        self.download_selected_btn.setEnabled(False)
+        self._set_status("Select a track and click Download.", Colors.TEXT_PRIMARY)
+        self.adjustSize()
+
+    def _on_selection_changed(self):
+        has_selection = len(self.results_list.selectedItems()) > 0
+        self.download_selected_btn.setEnabled(has_selection)
+
+    def _on_download_selected(self):
+        selected_items = self.results_list.selectedItems()
+        if not selected_items or self._is_downloading:
+            return
+
+        url = selected_items[0].data(Qt.ItemDataRole.UserRole)
+        if not url:
+            return
+
+        self._is_downloading = True
+        self.search_btn.setEnabled(False)
+        self.search_input.setEnabled(False)
+        self.download_selected_btn.setEnabled(False)
+        self.results_list.setEnabled(False)
+        self.close_btn.setEnabled(False)
+        self.progress_bar.setValue(0)
+        self._set_status('Starting download...', Colors.TEXT_SECONDARY)
+        self.speed_label.setText("")
+
+        from core.downloader import MusicDownloader
+        import threading
+
+        folder = self.default_folder or "downloads"
+        downloader = MusicDownloader(folder)
+
         def _on_progress(state):
-            # Emit signal to main thread
             self._progress_update.emit(state)
 
         def _task():
-            result = downloader.download_song(query, progress_callback=_on_progress)
+            result = downloader.download_song(url, progress_callback=_on_progress)
             self._task_done.emit(result, folder)
 
         threading.Thread(target=_task, daemon=True).start()
@@ -194,8 +296,10 @@ class DownloadDialog(QDialog):
     def _on_done(self, result_path, folder: str):
         """Called on main thread after download thread completes."""
         self._is_downloading = False
-        self.download_btn.setEnabled(True)
+        self.search_btn.setEnabled(True)
         self.search_input.setEnabled(True)
+        self.download_selected_btn.setEnabled(True)
+        self.results_list.setEnabled(True)
         self.close_btn.setEnabled(True)
 
         if result_path:
@@ -214,8 +318,11 @@ class DownloadDialog(QDialog):
 
     def _reset(self):
         self.search_input.clear()
+        self.results_list.clear()
+        self.results_list.hide()
+        self.download_selected_btn.hide()
         self.progress_bar.setValue(0)
-        self._set_status("Enter a song name and press Download.", Colors.TEXT_SECONDARY)
+        self._set_status("Enter a song name and press Search.", Colors.TEXT_SECONDARY)
         self.speed_label.setText("")
 
     def _set_status(self, text: str, color: str):
