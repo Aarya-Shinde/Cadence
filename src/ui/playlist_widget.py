@@ -17,6 +17,7 @@ class PlaylistWidget(QWidget):
     # Signals
     song_double_clicked = pyqtSignal(dict)  # Emit song dict
     song_right_clicked = pyqtSignal(dict, object)  # Song dict and mouse position
+    song_delete_clicked = pyqtSignal(dict)  # Emitted when delete button clicked
     
     def __init__(self):
         super().__init__()
@@ -45,9 +46,9 @@ class PlaylistWidget(QWidget):
         
         # Song table
         self.table = QTableWidget()
-        self.table.setColumnCount(5)
+        self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels([
-            "Title", "Artist", "Album", "Duration", "Date Added"
+            "Title", "Artist", "Album", "Duration", "Date Added", "Actions"
         ])
         
         # Configure table
@@ -57,6 +58,7 @@ class PlaylistWidget(QWidget):
         self.table.setColumnWidth(2, 150)  # Album
         self.table.setColumnWidth(3, 80)   # Duration
         self.table.setColumnWidth(4, 120)  # Date Added
+        self.table.setColumnWidth(5, 60)   # Actions
         
         # Enable sorting
         self.table.setSortingEnabled(True)
@@ -118,9 +120,30 @@ class PlaylistWidget(QWidget):
             date_item = QTableWidgetItem(str(song['date_added']))
             self.table.setItem(row, 4, date_item)
             
+            # Actions (Delete button)
+            from PyQt6.QtWidgets import QPushButton
+            delete_btn = QPushButton()
+            delete_btn.setIcon(get_icon("trash"))
+            delete_btn.setToolTip("Delete Song")
+            delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            delete_btn.setStyleSheet("""
+                QPushButton {
+                    border: none;
+                    background: transparent;
+                }
+                QPushButton:hover {
+                    background-color: rgba(255, 60, 60, 0.2);
+                    border-radius: 4px;
+                }
+            """)
+            delete_btn.clicked.connect(lambda checked, s=song: self.song_delete_clicked.emit(s))
+            self.table.setCellWidget(row, 5, delete_btn)
+            
             # Store song data in row
-            for col in range(5):
-                self.table.item(row, col).song_data = song
+            for col in range(6):
+                item = self.table.item(row, col)
+                if item:
+                    item.song_data = song
         
         self.status_label.setText(f"Showing {len(self.filtered_songs)} songs")
     
