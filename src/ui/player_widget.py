@@ -225,11 +225,15 @@ class EnhancedPlayerWidget(QWidget):
         self.volume_icon.setIcon(get_icon(Icons.VOLUME))
         self.volume_icon.setIconSize(QSize(18, 18))
         self.volume_icon.setFixedSize(28, 28)
+        self.volume_icon.setCursor(Qt.CursorShape.PointingHandCursor)
         self.volume_icon.setStyleSheet(f"""
             QPushButton {{ background: transparent; border: none; color: {Colors.TEXT_TERTIARY}; }}
             QPushButton:hover {{ color: {Colors.ACCENT_PRIMARY}; }}
         """)
+        self.volume_icon.clicked.connect(self._on_volume_icon_clicked)
         volume_layout.addWidget(self.volume_icon)
+        
+        self.last_volume = 80 # Default for unmuting
         
         self.volume_slider = ClickSlider(Qt.Orientation.Horizontal)
         self.volume_slider.setRange(0, 100)
@@ -472,6 +476,23 @@ class EnhancedPlayerWidget(QWidget):
         volume = value / 100.0
         self.volume_changed.emit(volume)
         self.volume_text.setText(f"{value}%")
+        self.update_volume_icon(volume)
+        
+    def update_volume_icon(self, volume: float):
+        """Update volume icon based on level"""
+        if volume <= 0:
+            self.volume_icon.setIcon(get_icon("volume-mute"))
+        else:
+            self.volume_icon.setIcon(get_icon("volume"))
+
+    def _on_volume_icon_clicked(self):
+        """Toggle mute"""
+        current = self.volume_slider.value()
+        if current > 0:
+            self.last_volume = current
+            self.volume_slider.setValue(0)
+        else:
+            self.volume_slider.setValue(self.last_volume)
         
     def _on_shuffle_click(self):
         """Toggle shuffle"""
@@ -493,6 +514,14 @@ class EnhancedPlayerWidget(QWidget):
             self.play_btn.setIcon(get_icon(Icons.PLAY))
             self.play_btn.setToolTip("Play (Space)")
     
+    def wheelEvent(self, event):
+        """Handle mouse wheel for volume control anywhere on the player bar"""
+        delta = event.angleDelta().y()
+        change = 5 if delta > 0 else -5
+        current = self.volume_slider.value()
+        self.volume_slider.setValue(max(0, min(100, current + change)))
+        event.accept()
+
     @staticmethod
     def _format_time(seconds: float) -> str:
         """Format seconds as MM:SS"""
