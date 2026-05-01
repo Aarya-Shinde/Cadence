@@ -1,11 +1,10 @@
-
 from PyQt6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QMenu, QMessageBox, QFileDialog, QFrame,
-    QPushButton
+    QPushButton, QLineEdit
 )
 from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon, QPixmap, QColor
+from PyQt6.QtGui import QFont, QIcon, QPixmap, QColor, QKeySequence, QShortcut
 import logging
 import threading
 from pathlib import Path
@@ -23,8 +22,10 @@ from ui.lyrics_display_widget import SongDetailsPanel
 from ui.download_dialog import DownloadDialog
 from utils.config import get_config
 from utils.updater import UpdateChecker
-from utils.lyrics_fetcher import LyricsManager
+from utils.metadata_reader import MetadataReader
 from utils.album_art import AlbumArtManager
+from utils.lyrics_fetcher import LyricsManager
+from utils.media_keys import MediaKeyInterceptor
 
 
 logger = logging.getLogger(__name__)
@@ -143,10 +144,21 @@ class MainWindow(QMainWindow):
         # Load data
         self.load_playlist()
         
+        # Setup Global Media Keys
+        self.media_keys = MediaKeyInterceptor()
+        self.media_keys.play_pause_pressed.connect(self._on_play_pause_toggle)
+        self.media_keys.next_pressed.connect(self.on_next)
+        self.media_keys.prev_pressed.connect(self.on_previous)
+        self.media_keys.start()
+        
         # Position update timer
         self.position_timer = QTimer()
         self.position_timer.timeout.connect(self._update_position_display)
         self.position_timer.start(100)
+
+        # Setup Keyboard Shortcuts
+        self._setup_local_shortcuts()
+
 
         # ── Background update check ──────────────────────────────────
         self._start_update_check()
@@ -309,12 +321,6 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(16, 12, 16, 12)
         layout.setSpacing(14)
         
-        # ===== NOW PLAYING INFO =====
-        self.now_playing_label = QLabel("No song playing")
-        self.now_playing_label.setFont(Fonts.BODY_LARGE)
-        self.now_playing_label.setStyleSheet(f"color: {Colors.ACCENT_PRIMARY}; font-weight: 600;")
-        layout.addWidget(self.now_playing_label)
-        
         # ===== PLAYER WIDGET =====
         self.player_widget = EnhancedPlayerWidget()
         layout.addWidget(self.player_widget)
@@ -380,6 +386,7 @@ class MainWindow(QMainWindow):
         
         # Playlist signals
         self.playlist_widget.song_double_clicked.connect(self.on_song_selected)
+        self.playlist_widget.song_delete_clicked.connect(self.on_delete_song)
         
         # Audio player signals
         self.player.on_track_ended = self.on_track_ended
@@ -411,15 +418,15 @@ class MainWindow(QMainWindow):
             self.player_widget.set_playing_state(True)
             self.playlist_widget.highlight_song(song['id'])
             
-            # Update header
-            self.now_playing_label.setText(f"{song['title']} • {song['artist']}")
+            # Update status
             self.status_label.setText(f"Now playing: {song['title']}")
 
             # ── Album art (async, non-blocking) ──────────────────────
             def _load_art():
                 art_path = self.album_art_manager.get_art(
                     song['id'],
-                    song['path'],
+                    song.get('file_path', ''),
+                    song.get('title', 'Unknown'),
                     song.get('album', 'Unknown'),
                     song.get('artist', 'Unknown'),
                     auto_extract=True
@@ -470,20 +477,60 @@ class MainWindow(QMainWindow):
         self.player.pause()
         self.player_widget.set_playing_state(False)
         self.status_label.setText(" Paused")
+        
+    def _on_play_pause_toggle(self):
+        """Toggle play/pause from global media keys"""
+        if self.player.is_playing:
+            self.on_pause()
+        else:
+            self.on_play()
     
-    def on_next(self):
-        """Next button clicked"""
-        if self.current_index < len(self.playlist) - 1:
-            self.current_index += 1
+    def on_next(self, auto_next: bool = False):
+        """Next button clicked or track automatically ended"""
+        if not self.playlist:
+            return
+            
+        # If it ended naturally and repeat is on, play it again
+        if auto_next and getattr(self.player_widget, 'is_repeat', False):
+            if self.current_song:
+                self.player.seek(0)
+                self.player.play()
+            return
+            
+        import random
+        if getattr(self.player_widget, 'is_shuffle', False):
+            if len(self.playlist) > 1:
+                next_index = self.current_index
+                while next_index == self.current_index:
+                    next_index = random.randint(0, len(self.playlist) - 1)
+                self.current_index = next_index
             self.on_song_selected(self.playlist[self.current_index])
         else:
-            self.status_label.setText("End of playlist")
+            if self.current_index < len(self.playlist) - 1:
+                self.current_index += 1
+                self.on_song_selected(self.playlist[self.current_index])
+            else:
+                self.player.stop()
+                self.player_widget.set_playing_state(False)
+                self.status_label.setText("End of playlist")
     
     def on_previous(self):
         """Previous button clicked"""
-        if self.current_index > 0:
-            self.current_index -= 1
+        if not self.playlist:
+            return
+            
+        import random
+        if getattr(self.player_widget, 'is_shuffle', False):
+            if len(self.playlist) > 1:
+                next_index = self.current_index
+                while next_index == self.current_index:
+                    next_index = random.randint(0, len(self.playlist) - 1)
+                self.current_index = next_index
             self.on_song_selected(self.playlist[self.current_index])
+        else:
+            if self.current_index > 0:
+                self.current_index -= 1
+                self.on_song_selected(self.playlist[self.current_index])
     
     def on_volume_changed(self, volume: float):
         """Volume changed"""
@@ -495,8 +542,8 @@ class MainWindow(QMainWindow):
         self.player.seek(seconds)
     
     def on_track_ended(self):
-        """Track ended"""
-        self.on_next()
+        """Track ended naturally"""
+        self.on_next(auto_next=True)
     
     def _update_position_callback(self, position: float):
         """Position update callback"""
@@ -546,6 +593,80 @@ class MainWindow(QMainWindow):
         self.player.set_volume(new_volume)
         self.player_widget.volume_slider.setValue(int(new_volume * 100))
         logger.info("Settings applied")
+
+    def closeEvent(self, event):
+        """Handle application closing"""
+        # Stop media keys listener
+        if hasattr(self, 'media_keys'):
+            self.media_keys.stop()
+            
+        # Save window geometry
+        self.config.set('window_width', self.width())
+        self.config.set('window_height', self.height())
+        
+        event.accept()
+
+    def _setup_local_shortcuts(self):
+        """Define local application shortcuts"""
+        # Play/Pause (Space)
+        self.space_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
+        self.space_shortcut.activated.connect(self._on_local_play_pause)
+
+        # Seek Backward (Left Arrow)
+        self.left_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Left), self)
+        self.left_shortcut.activated.connect(lambda: self.on_seek(max(0, self.player.get_current_position() - 10)))
+
+        # Seek Forward (Right Arrow)
+        self.right_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Right), self)
+        self.right_shortcut.activated.connect(lambda: self.on_seek(self.player.get_current_position() + 10))
+
+        # Previous Track (Shift+P or Media Prev)
+        self.prev_shortcut = QShortcut(QKeySequence(Qt.Modifier.SHIFT | Qt.Key.Key_P), self)
+        self.prev_shortcut.activated.connect(self.on_previous)
+
+        # Next Track (Shift+N or Media Next)
+        self.next_shortcut = QShortcut(QKeySequence(Qt.Modifier.SHIFT | Qt.Key.Key_N), self)
+        self.next_shortcut.activated.connect(self.on_next)
+
+        # Navigation (Up/Down) - Handled by table if focused, but added globally for convenience
+        self.up_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Up), self)
+        self.up_shortcut.activated.connect(self._on_local_up)
+
+        self.down_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Down), self)
+        self.down_shortcut.activated.connect(self._on_local_down)
+
+        # Enter to Play Selected
+        self.enter_shortcut = QShortcut(QKeySequence(Qt.Key.Key_Return), self)
+        self.enter_shortcut.activated.connect(self._on_local_enter)
+        
+        self.enter_shortcut_2 = QShortcut(QKeySequence(Qt.Key.Key_Enter), self)
+        self.enter_shortcut_2.activated.connect(self._on_local_enter)
+
+    def _on_local_play_pause(self):
+        # Ignore if typing in search bar
+        if not isinstance(self.focusWidget(), QLineEdit):
+            self._on_play_pause_toggle()
+
+    def _on_local_up(self):
+        if not isinstance(self.focusWidget(), QLineEdit):
+            row = self.playlist_widget.table.currentRow()
+            if row > 0:
+                self.playlist_widget.table.selectRow(row - 1)
+                self.playlist_widget.table.setCurrentCell(row - 1, 0)
+
+    def _on_local_down(self):
+        if not isinstance(self.focusWidget(), QLineEdit):
+            row = self.playlist_widget.table.currentRow()
+            if row < self.playlist_widget.table.rowCount() - 1:
+                self.playlist_widget.table.selectRow(row + 1)
+                self.playlist_widget.table.setCurrentCell(row + 1, 0)
+
+    def _on_local_enter(self):
+        if not isinstance(self.focusWidget(), QLineEdit):
+            song = self.playlist_widget.get_selected_song()
+            if song:
+                self.on_song_selected(song)
+
 
     def on_scan_folder(self):
         """Scan music folder"""
@@ -603,6 +724,43 @@ class MainWindow(QMainWindow):
             self.player.stop()
             self.current_song = None
             self.status_label.setText("Library cleared")
+
+    def on_delete_song(self, song: dict):
+        """Handle deleting a single song from the playlist"""
+        reply = QMessageBox.question(
+            self,
+            "Delete Song",
+            f"Are you sure you want to delete '{song['title']}'?\nThis will remove it from the library.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            # First, completely stop playback and clear UI if this song is currently playing
+            # This is critical to release the file handle lock!
+            if self.current_song and self.current_song.get('id') == song['id']:
+                self.player.stop()
+                self.details_panel.clear_song()
+                self.current_song = None
+                
+            # Delete file
+            reply2 = QMessageBox.question(
+                self,
+                "Delete File",
+                "Do you also want to permanently delete the actual audio file from your hard drive?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply2 == QMessageBox.StandardButton.Yes:
+                try:
+                    import os
+                    if song.get('path'):
+                        os.remove(song.get('path'))
+                except Exception as e:
+                    logger.error(f"Failed to delete file {song.get('path')}: {e}")
+            
+            # Remove from DB
+            self.db.remove_song_by_id(song['id'])
+            
+            self.load_playlist()
+            self.status_label.setText(f"Deleted '{song['title']}'")
 
     def on_download_song(self):
         """Show the premium search & download dialog"""
@@ -679,15 +837,10 @@ class MainWindow(QMainWindow):
 Cadence Music Player v1.0
 
 A beautiful, modern music player for your collection.
+For personal use only. 
+A Gift to every music lover
 
 Built with PyQt6 and pygame-mixer
-
-Features:
-- Auto-detect music files
-- Dark theme with pastel purple accents
-- Fast, smooth playback
-- Search and organize songs
-- Beautiful modern interface
 
 © 2026 • All Rights Reserved
         """.strip()
