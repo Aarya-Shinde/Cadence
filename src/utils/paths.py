@@ -14,5 +14,12 @@ DB_PATH          = str(_BASE / "cadence.db")          # SQLite: songs + lyrics +
 CONFIG_PATH      = str(_BASE / "cadence_config.json") # User settings
 LOG_FILE         = "cadence.log"                       # RotatingFileHandler filename
 LOG_DIR          = str(_BASE / "logs")                 # Log directory
-ALBUM_ART_DIR    = str(_BASE / "album_art_cache")      # Cached album art PNGs
-LYRICS_DIR       = str(_BASE / "lyrics")               # Cached .txt lyrics files
+def get_album_art_dir() -> str:
+    from utils.config import get_config
+    base = Path(get_config().get('music_folder', _BASE))
+    return str(base / ".album_art_cache")
+
+def get_lyrics_dir() -> str:
+    from utils.config import get_config
+    base = Path(get_config().get('music_folder', _BASE))
+    return str(base / ".lyrics")
