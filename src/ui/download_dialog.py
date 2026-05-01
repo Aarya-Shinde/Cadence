@@ -177,6 +177,13 @@ class DownloadDialog(QDialog):
         if not query or self._is_downloading:
             return
 
+        # Detect direct URLs
+        is_url = any(s in query.lower() for s in ["http://", "https://", "youtube.com/", "youtu.be/"])
+        
+        if is_url:
+            self._start_direct_download(query)
+            return
+
         self.search_btn.setEnabled(False)
         self.search_input.setEnabled(False)
         self.results_list.clear()
@@ -235,6 +242,37 @@ class DownloadDialog(QDialog):
     def _on_selection_changed(self):
         has_selection = len(self.results_list.selectedItems()) > 0
         self.download_selected_btn.setEnabled(has_selection)
+
+    def _start_direct_download(self, url: str):
+        """Start downloading a URL immediately without searching"""
+        if self._is_downloading:
+            return
+
+        self._is_downloading = True
+        self.search_btn.setEnabled(False)
+        self.search_input.setEnabled(False)
+        self.download_selected_btn.setEnabled(False)
+        self.results_list.setEnabled(False)
+        self.close_btn.setEnabled(False)
+        
+        self.progress_bar.setValue(0)
+        self._set_status('Initializing direct download...', Colors.ACCENT_PRIMARY)
+        self.speed_label.setText(url)
+
+        from core.downloader import MusicDownloader
+        import threading
+
+        folder = self.default_folder or "downloads"
+        downloader = MusicDownloader(folder)
+
+        def _on_progress(state):
+            self._progress_update.emit(state)
+
+        def _task():
+            result = downloader.download_song(url, progress_callback=_on_progress)
+            self._task_done.emit(result, folder)
+
+        threading.Thread(target=_task, daemon=True).start()
 
     def _on_download_selected(self):
         selected_items = self.results_list.selectedItems()
