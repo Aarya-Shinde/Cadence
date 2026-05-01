@@ -169,15 +169,15 @@ class MainWindow(QMainWindow):
         content_layout.setContentsMargins(16, 16, 16, 16)
         content_layout.setSpacing(16)
 
-        # Song details panel (album art + lyrics) — 2/5 of width
+        # Song details panel (album art + lyrics)
         self.details_panel = SongDetailsPanel()
         self.details_panel.fetch_lyrics.connect(self.on_fetch_lyrics)
         self.details_panel.retry_lyrics.connect(lambda sid, t, a: self.on_fetch_lyrics(sid, t, a, force=True))
-        content_layout.addWidget(self.details_panel, 2)
+        content_layout.addWidget(self.details_panel, 1)
         
-        # Playlist — 3/5 of width
+        # Playlist
         self.playlist_widget = PlaylistWidget()
-        content_layout.addWidget(self.playlist_widget, 3)
+        content_layout.addWidget(self.playlist_widget, 1)
         
         main_layout.addLayout(content_layout, 1)
         
@@ -268,6 +268,26 @@ class MainWindow(QMainWindow):
         """)
         self.header_download_btn.clicked.connect(self.on_download_song)
         layout.addWidget(self.header_download_btn)
+        
+        # Toggle playlist button
+        self.toggle_playlist_btn = QPushButton()
+        self.toggle_playlist_btn.setIcon(get_icon(Icons.MUSIC))
+        self.toggle_playlist_btn.setFixedSize(32, 32)
+        self.toggle_playlist_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toggle_playlist_btn.setToolTip("Toggle Playlist View")
+        self.toggle_playlist_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1.5px solid {Colors.ACCENT_PRIMARY};
+                border-radius: 6px;
+                padding: 4px;
+            }}
+            QPushButton:hover {{
+                background: {Colors.ACCENT_HOVER};
+            }}
+        """)
+        self.toggle_playlist_btn.clicked.connect(self.on_toggle_playlist)
+        layout.addWidget(self.toggle_playlist_btn)
         
         header.setLayout(layout)
         return header
@@ -598,6 +618,17 @@ class MainWindow(QMainWindow):
             
         dialog.download_finished.connect(_on_complete)
         dialog.show()
+
+    def on_toggle_playlist(self):
+        """Toggle visibility of the playlist to expand the album art/lyrics view"""
+        is_visible = self.playlist_widget.isVisible()
+        self.playlist_widget.setVisible(not is_visible)
+        
+        # Optionally change icon or tooltip
+        if is_visible:
+            self.toggle_playlist_btn.setToolTip("Show Playlist")
+        else:
+            self.toggle_playlist_btn.setToolTip("Hide Playlist")
     
     def on_check_updates_manual(self):
         """Manual update check triggered from Help menu"""

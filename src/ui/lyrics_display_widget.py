@@ -416,12 +416,12 @@ class SongDetailsPanel(QWidget):
         left_layout = QVBoxLayout()
         left_layout.setSpacing(8)
         
-        self.album_art = AlbumArtDisplay(size=280)
+        self.album_art = AlbumArtDisplay(size=400)
         left_layout.addWidget(self.album_art)
         
         # Song info
         self.info_frame = QFrame()
-        self.info_frame.setFixedWidth(280)  # Match album art width
+        self.info_frame.setFixedWidth(400)  # Match album art width
         self.info_frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {Colors.BACKGROUND_TERTIARY};
