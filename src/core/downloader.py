@@ -3,6 +3,7 @@ import yt_dlp
 from pathlib import Path
 from typing import Callable, Optional
 import logging
+from utils.paths import get_ffmpeg_path
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +189,7 @@ class MusicDownloader:
         ydl_opts = {
             "format": "bestaudio/best",
             "outtmpl": str(self.output_folder / "%(title)s.%(ext)s"),
-            "ffmpeg_location": r"D:\ffmpeg\ffmpeg-8.1-essentials_build\bin",
+            "ffmpeg_location": get_ffmpeg_path(),
             "noplaylist": True,
             "restrictfilenames": True,
             "quiet": True,
