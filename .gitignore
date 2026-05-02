@@ -10,5 +10,10 @@ lyrics_cache/
 lyrics/
 album_art_cache/
 cadence_config.json
-venv/
-__pycache__/
+
+# Build artifacts
+build/
+dist/
+*.spec
+libraries bin/
+*.ico
