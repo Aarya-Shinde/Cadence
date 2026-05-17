@@ -414,7 +414,7 @@ class AlbumArtManager:
 
     def get_art(self, song_id: int, file_path: str, title: str = "Unknown",
                 album: str = "Unknown", artist: str = "Unknown",
-                auto_extract: bool = True) -> Optional[str]:
+                auto_extract: bool = True, force_online: bool = False) -> Optional[str]:
         """Get album art, extracting if necessary
         
         Args:
@@ -424,20 +424,25 @@ class AlbumArtManager:
             album: Album name
             artist: Artist name
             auto_extract: Auto-extract if not cached
+            force_online: Force fetching from online API instead of local file
         
         Returns:
             Cache path or None
         """
         # Try cache first
-        cached = self.cache.get_art(song_id)
-        if cached:
-            return cached
+        if not force_online:
+            cached = self.cache.get_art(song_id)
+            if cached:
+                return cached
         
         # Extract if requested
-        if auto_extract:
-            image_data = self.extractor.extract(file_path)
-            
+        if auto_extract or force_online:
+            image_data = None
             source = "file"
+            
+            if not force_online:
+                image_data = self.extractor.extract(file_path)
+            
             if not image_data:
                 # Fallback to iTunes API
                 is_unknown_title = not title or title.lower() in ("unknown", "unknown title")
