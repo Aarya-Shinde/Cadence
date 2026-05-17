@@ -9,6 +9,7 @@ import logging
  
 from ui.style import Colors, Fonts
 from ui.icons import get_icon
+from ui.truncated_label import TruncatedLabel
  
 logger = logging.getLogger(__name__)
  
@@ -146,9 +147,10 @@ class EnhancedPlayerWidget(QWidget):
         title_row.setSpacing(8)
         title_row.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         
-        self.now_playing_title = QLabel("No song playing")
+        self.now_playing_title = TruncatedLabel("No song playing")
         self.now_playing_title.setFont(Fonts.BODY_LARGE)
         self.now_playing_title.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-weight: 500;")
+        self.now_playing_title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         title_row.addWidget(self.now_playing_title)
         
         # Favorite button (now after title)
@@ -173,9 +175,10 @@ class EnhancedPlayerWidget(QWidget):
         
         info_layout.addLayout(title_row)
         
-        self.now_playing_artist = QLabel("Select a song to play")
+        self.now_playing_artist = TruncatedLabel("Select a song to play")
         self.now_playing_artist.setFont(Fonts.BODY_SMALL)
         self.now_playing_artist.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
+        self.now_playing_artist.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         
         info_layout.addWidget(self.now_playing_artist)
         

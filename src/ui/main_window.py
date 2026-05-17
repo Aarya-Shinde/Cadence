@@ -186,6 +186,7 @@ class MainWindow(QMainWindow):
         self.details_panel = SongDetailsPanel()
         self.details_panel.fetch_lyrics.connect(self.on_fetch_lyrics)
         self.details_panel.retry_lyrics.connect(lambda sid, t, a: self.on_fetch_lyrics(sid, t, a, force=True))
+        self.details_panel.retry_art.connect(self.on_retry_art)
         content_layout.addWidget(self.details_panel, 1)
         
         # Playlist
@@ -542,6 +543,36 @@ class MainWindow(QMainWindow):
                     self._bridge.invoke(lambda: self.status_label.setText(f"No new lyrics found for {title}"))
 
         self.lyrics_manager.fetch_async(song_id, title, artist, _on_result, force=force)
+
+    def on_retry_art(self, song_id: int, title: str, artist: str, file_path: str):
+        """Fetch album art from online forcefully"""
+        self.status_label.setText(f"Refreshing album art for {title}...")
+        
+        song = self.current_song
+        if not song or song.get('id') != song_id:
+            return
+            
+        def _load_art():
+            art_path = self.album_art_manager.get_art(
+                song['id'],
+                song.get('file_path', ''),
+                song.get('title', 'Unknown'),
+                song.get('album', 'Unknown'),
+                song.get('artist', 'Unknown'),
+                auto_extract=True,
+                force_online=True
+            )
+            
+            def _update_ui(p):
+                if p:
+                    self.details_panel.set_song(song, p)
+                    self.status_label.setText(f"Album art updated for {title}")
+                else:
+                    self.status_label.setText(f"No new album art found for {title}")
+                    
+            self._bridge.invoke(lambda p=art_path: _update_ui(p))
+
+        threading.Thread(target=_load_art, daemon=True).start()
     
     def on_play(self):
         """Resume playback"""

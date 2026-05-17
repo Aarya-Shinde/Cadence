@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QScrollArea, QFrame, QPushButton
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QRect
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QRect, QSize
 from PyQt6.QtGui import QFont, QPixmap, QColor
 from PyQt6.QtCore import QEasingCurve
 from pathlib import Path
@@ -22,6 +22,7 @@ import logging
 from ui.style import Colors, Fonts
 from ui.icons import get_icon
 from ui.visualizer import AudioVisualizer
+from ui.truncated_label import TruncatedLabel
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +33,8 @@ logger = logging.getLogger(__name__)
 
 class AlbumArtDisplay(QWidget):
     """Display album art with fallback"""
+    
+    retry_requested = pyqtSignal()
     
     def __init__(self, size: int = 200):
         super().__init__()
@@ -57,6 +60,39 @@ class AlbumArtDisplay(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.art_label)
         self.setLayout(layout)
+        
+        # Retry button (shown on hover)
+        self.retry_btn = QPushButton(self)
+        self.retry_btn.setIcon(get_icon("refresh", color="white"))
+        self.retry_btn.setIconSize(QSize(24, 24))
+        self.retry_btn.setFixedSize(48, 48)
+        self.retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.retry_btn.setToolTip("Retry fetching album art")
+        self.retry_btn.setStyleSheet(f"""
+            QPushButton {{
+                background-color: rgba(0, 0, 0, 0.6);
+                border-radius: 24px;
+                border: 2px solid {Colors.ACCENT_PRIMARY};
+            }}
+            QPushButton:hover {{
+                background-color: {Colors.ACCENT_PRIMARY};
+            }}
+        """)
+        self.retry_btn.clicked.connect(self.retry_requested.emit)
+        self.retry_btn.hide()
+        
+        # Bottom-left corner with padding
+        padding = 12
+        self.retry_btn.move(padding, self.size - 48 - padding)
+        
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.retry_btn.show()
+        self.retry_btn.raise_()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self.retry_btn.hide()
     
     def set_image(self, image_path: str) -> bool:
         """Set album art from file
@@ -257,14 +293,13 @@ class LyricsDisplay(QWidget):
             self.content.setFixedWidth(v_width)
         
         # 1. Add Track Header (Title & Artist)
-        title_item = QLabel(title)
+        title_item = TruncatedLabel(title)
         title_item.setFont(Fonts.HEADING_LARGE)
-        title_item.setWordWrap(True)
         title_item.setAlignment(Qt.AlignmentFlag.AlignCenter)
         title_item.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-weight: bold; margin-top: 10px; margin-bottom: 5px;")
         self.content_layout.addWidget(title_item)
         
-        artist_item = QLabel(artist)
+        artist_item = TruncatedLabel(artist)
         artist_item.setFont(Fonts.BODY_LARGE)
         artist_item.setAlignment(Qt.AlignmentFlag.AlignCenter)
         artist_item.setStyleSheet(f"color: {Colors.ACCENT_PRIMARY}; margin-bottom: 30px;")
@@ -424,10 +459,12 @@ class SongDetailsPanel(QWidget):
     
     fetch_lyrics = pyqtSignal(int, str, str)  # song_id, title, artist
     retry_lyrics = pyqtSignal(int, str, str)  # song_id, title, artist
+    retry_art = pyqtSignal(int, str, str, str) # song_id, title, artist, file_path
     
     def __init__(self):
         super().__init__()
         self._current_song_id = -1
+        self._current_song_info = {}
         self.setup_ui()
     
     def setup_ui(self):
@@ -441,6 +478,7 @@ class SongDetailsPanel(QWidget):
         left_layout.setSpacing(8)
         
         self.album_art = AlbumArtDisplay(size=400)
+        self.album_art.retry_requested.connect(self._on_art_retry_requested)
         left_layout.addWidget(self.album_art)
         
         # Audio Visualizer (Dual-Layer Scrolling Waveform)
@@ -464,9 +502,10 @@ class SongDetailsPanel(QWidget):
         info_layout.setContentsMargins(0, 0, 0, 0)
         info_layout.setSpacing(12)
         
-        self.song_title = QLabel("No song")
+        self.song_title = TruncatedLabel("No song")
         self.song_title.setFont(Fonts.HEADING_SMALL)
         self.song_title.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-weight: 600;")
+        self.song_title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         info_layout.addWidget(self.song_title)
         
         # Separator dot
@@ -474,9 +513,10 @@ class SongDetailsPanel(QWidget):
         self.info_sep.setStyleSheet(f"color: {Colors.TEXT_TERTIARY};")
         info_layout.addWidget(self.info_sep)
         
-        self.song_artist = QLabel("")
+        self.song_artist = TruncatedLabel("")
         self.song_artist.setFont(Fonts.BODY_SMALL)
         self.song_artist.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
+        self.song_artist.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
         info_layout.addWidget(self.song_artist)
         
         info_layout.addStretch()
@@ -501,6 +541,16 @@ class SongDetailsPanel(QWidget):
                 self.song_title.text(),
                 self.song_artist.text()
             )
+
+    def _on_art_retry_requested(self):
+        """Forward retry art request with current song info"""
+        if self._current_song_id != -1:
+            self.retry_art.emit(
+                self._current_song_id,
+                self._current_song_info.get("title", ""),
+                self._current_song_info.get("artist", ""),
+                self._current_song_info.get("file_path", "")
+            )
     
     def set_song(self, song_info: dict, art_path: str = None):
         """Set song and load lyrics/art
@@ -511,6 +561,7 @@ class SongDetailsPanel(QWidget):
         """
         # Update info
         self._current_song_id = song_info.get("id", -1)
+        self._current_song_info = song_info
         self.song_title.setText(song_info.get("title", "Unknown"))
         self.song_artist.setText(song_info.get("artist", "Unknown Artist"))
         
