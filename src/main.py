@@ -14,6 +14,7 @@ from ui.main_window import MainWindow
 def main():
     app = QApplication(sys.argv)
     ThemeManager.apply_theme(app)
+    
     window = MainWindow()
     window.show()
     sys.exit(app.exec())

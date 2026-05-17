@@ -188,13 +188,33 @@ class SettingsDialog(QDialog):
         layout.addSpacing(20)
         
         # Manual check button
-        check_btn = QPushButton("Check for Updates Now")
-        check_btn.clicked.connect(self.on_check_updates)
-        layout.addWidget(check_btn)
+        self.check_btn = QPushButton("Check for Updates Now")
+        self.check_btn.clicked.connect(self.on_check_updates)
+        layout.addWidget(self.check_btn)
+        
+        # Update Status and Progress
+        self.update_status_label = QLabel("")
+        self.update_status_label.hide()
+        layout.addWidget(self.update_status_label)
+        
+        from PyQt6.QtWidgets import QProgressBar
+        self.update_progress = QProgressBar()
+        self.update_progress.setRange(0, 100)
+        self.update_progress.setTextVisible(False)
+        self.update_progress.setFixedHeight(6)
+        self.update_progress.hide()
+        layout.addWidget(self.update_progress)
+        
+        self.install_btn = QPushButton("Install & Restart")
+        self.install_btn.hide()
+        self.install_btn.clicked.connect(self.on_install_update)
+        layout.addWidget(self.install_btn)
         
         # Current version
         layout.addSpacing(20)
-        layout.addWidget(QLabel("Current Version: 1.0.0"))
+        from utils.updater import Updater
+        self._updater = Updater()
+        layout.addWidget(QLabel(f"Current Version: {self._updater.current_version}"))
         
         layout.addStretch()
         tab.setLayout(layout)
@@ -317,5 +337,80 @@ class SettingsDialog(QDialog):
     
     def on_check_updates(self):
         """Trigger manual update check"""
-        # This will be implemented in updater.py
-        self.settings_changed.emit()
+        self.check_btn.setEnabled(False)
+        self.update_status_label.setText("Checking for updates...")
+        self.update_status_label.setStyleSheet("color: palette(text);")
+        self.update_status_label.show()
+        self.update_progress.hide()
+        self.install_btn.hide()
+        
+        import threading
+        def _task():
+            try:
+                result = self._updater.check_for_updates()
+                # Need to use signals to update UI from thread, but we can use QTimer singleShot
+                from PyQt6.QtCore import QMetaObject, Q_ARG, Qt
+                QMetaObject.invokeMethod(self, "_on_check_done", Qt.ConnectionType.QueuedConnection, Q_ARG(object, result))
+            except Exception as e:
+                logger.error(f"Update check failed: {e}")
+                QMetaObject.invokeMethod(self, "_on_check_done", Qt.ConnectionType.QueuedConnection, Q_ARG(object, None))
+                
+        threading.Thread(target=_task, daemon=True).start()
+
+    from PyQt6.QtCore import pyqtSlot
+    @pyqtSlot(object)
+    def _on_check_done(self, result):
+        if result:
+            version, url = result
+            self.update_status_label.setText(f"Update Available: v{version}. Downloading...")
+            self.update_progress.setValue(0)
+            self.update_progress.show()
+            
+            import threading
+            def _download_task():
+                def progress(downloaded, total):
+                    if total > 0:
+                        from PyQt6.QtCore import QMetaObject, Q_ARG, Qt
+                        QMetaObject.invokeMethod(self, "_on_download_progress", Qt.ConnectionType.QueuedConnection, Q_ARG(int, downloaded), Q_ARG(int, total))
+                
+                success = self._updater.download_update(url, save_path="update.zip", progress_callback=progress)
+                from PyQt6.QtCore import QMetaObject, Q_ARG, Qt
+                QMetaObject.invokeMethod(self, "_on_download_done", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, success))
+                
+            threading.Thread(target=_download_task, daemon=True).start()
+        else:
+            self.update_status_label.setText("You are up to date.")
+            self.check_btn.setEnabled(True)
+
+    @pyqtSlot(int, int)
+    def _on_download_progress(self, downloaded, total):
+        pct = int(downloaded / total * 100)
+        self.update_progress.setValue(pct)
+        mb_down = downloaded / (1024*1024)
+        mb_tot = total / (1024*1024)
+        self.update_status_label.setText(f"Downloading: {mb_down:.1f} / {mb_tot:.1f} MB")
+
+    @pyqtSlot(bool)
+    def _on_download_done(self, success):
+        self.check_btn.setEnabled(True)
+        if success:
+            from ui.style import Colors
+            self.update_status_label.setText("Update ready to install.")
+            self.update_status_label.setStyleSheet(f"color: {Colors.SUCCESS};")
+            self.update_progress.setValue(100)
+            self.install_btn.show()
+        else:
+            from ui.style import Colors
+            self.update_status_label.setText("Failed to download update.")
+            self.update_status_label.setStyleSheet(f"color: {Colors.ERROR};")
+            self.update_progress.hide()
+
+    def on_install_update(self):
+        """Install the downloaded update"""
+        self.install_btn.setEnabled(False)
+        self.update_status_label.setText("Installing... App will restart.")
+        started = self._updater.install_update("update.zip")
+        if started is False:
+            self.update_status_label.setText("Cannot auto-update when running from source.")
+            from ui.style import Colors
+            self.update_status_label.setStyleSheet(f"color: {Colors.ERROR};")
