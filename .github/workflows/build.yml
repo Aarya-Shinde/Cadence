@@ -3,6 +3,8 @@ name: Build Windows App
 on:
   push:
     branches: [ "main" ]
+    tags:
+      - 'v*'
   workflow_dispatch: # Allows manual trigger
 
 jobs:
@@ -49,3 +51,13 @@ jobs:
       with:
         name: Cadence-Installer-MSI
         path: dist\Cadence-Installer.msi
+
+    - name: Publish to GitHub Releases
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/v')
+      with:
+        files: |
+          Cadence-Windows.zip
+          dist\Cadence-Installer.msi
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
