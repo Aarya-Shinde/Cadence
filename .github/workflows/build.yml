@@ -28,11 +28,24 @@ jobs:
     - name: Build with PyInstaller
       run: python build_cadence.py
 
-    - name: Zip the application
+    - name: Zip the application (For Auto-Updater)
       run: Compress-Archive -Path dist\Cadence -DestinationPath Cadence-Windows.zip
 
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v3
+    - name: Build MSI Installer (For New Users)
+      run: |
+        # WiX v3 is pre-installed on GitHub windows-latest runners
+        heat dir "dist\Cadence" -cg HarvestedComponents -dr INSTALLFOLDER -scom -sreg -srd -var var.SourceDir -gg -out components.wxs
+        candle -dSourceDir="dist\Cadence" cadence.wxs components.wxs -ext WixUIExtension
+        light -b "dist\Cadence" -out dist\Cadence-Installer.msi cadence.wixobj components.wixobj -ext WixUIExtension -sval
+
+    - name: Upload Zip Artifact
+      uses: actions/upload-artifact@v4
       with:
-        name: Cadence-Windows
+        name: Cadence-Windows-Zip
         path: Cadence-Windows.zip
+
+    - name: Upload MSI Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Cadence-Installer-MSI
+        path: dist\Cadence-Installer.msi
