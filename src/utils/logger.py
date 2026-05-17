@@ -20,10 +20,10 @@ def setup_logging(log_file: str = _DEFAULT_LOG, level=logging.INFO):
     logger = logging.getLogger()
     logger.setLevel(logging.DEBUG)
     
-    # File handler (rotates when size > 5MB) — always UTF-8
+    # File handler (rotates when size > 2MB) — always UTF-8
     file_handler = logging.handlers.RotatingFileHandler(
         log_file,
-        maxBytes=5*1024*1024,  # 5MB
+        maxBytes=2*1024*1024,  # 2MB
         backupCount=3,
         encoding="utf-8",
     )
