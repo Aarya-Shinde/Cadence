@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <!-- Replace UpgradeCode with a unique GUID for your app. Do not change it later! -->
+    <Product Id="*" Name="Cadence" Language="1033" Version="1.0.0.0" Manufacturer="Aarya Shinde" UpgradeCode="12345678-1234-1234-1234-1234567890AB">
+        <Package InstallerVersion="200" Compressed="yes" InstallScope="perUser" />
+
+        <MajorUpgrade DowngradeErrorMessage="A newer version of Cadence is already installed." />
+        <MediaTemplate EmbedCab="yes" />
+
+        <!-- Directory Structure: Install into AppData/Local/Programs to allow seamless auto-updating -->
+        <Directory Id="TARGETDIR" Name="SourceDir">
+            <Directory Id="LocalAppDataFolder">
+                <Directory Id="ProgramsFolder" Name="Programs">
+                    <Directory Id="INSTALLFOLDER" Name="Cadence" />
+                </Directory>
+            </Directory>
+            <!-- Start Menu Folder -->
+            <Directory Id="ProgramMenuFolder">
+                <Directory Id="ApplicationProgramsFolder" Name="Cadence"/>
+            </Directory>
+            <!-- Desktop Folder -->
+            <Directory Id="DesktopFolder" Name="Desktop" />
+        </Directory>
+
+        <!-- Shortcuts -->
+        <DirectoryRef Id="ApplicationProgramsFolder">
+            <Component Id="ApplicationShortcut" Guid="87654321-4321-4321-4321-BA0987654321">
+                <Shortcut Id="ApplicationStartMenuShortcut" 
+                          Name="Cadence" 
+                          Description="Cadence Music Player"
+                          Target="[INSTALLFOLDER]Cadence.exe"
+                          WorkingDirectory="INSTALLFOLDER"/>
+                <RemoveFolder Id="CleanUpShortCut" Directory="ApplicationProgramsFolder" On="uninstall"/>
+                <RegistryValue Root="HKCU" Key="Software\AaryaShinde\Cadence" Name="installed" Type="integer" Value="1" KeyPath="yes"/>
+            </Component>
+        </DirectoryRef>
+
+        <DirectoryRef Id="DesktopFolder">
+            <Component Id="ApplicationShortcutDesktop" Guid="98765432-1234-5678-1234-567890ABCDEF">
+                <Shortcut Id="ApplicationDesktopShortcut"
+                          Name="Cadence"
+                          Description="Cadence Music Player"
+                          Target="[INSTALLFOLDER]Cadence.exe"
+                          WorkingDirectory="INSTALLFOLDER"/>
+                <RegistryValue Root="HKCU" Key="Software\AaryaShinde\Cadence" Name="desktop_installed" Type="integer" Value="1" KeyPath="yes"/>
+            </Component>
+        </DirectoryRef>
+
+        <Feature Id="ProductFeature" Title="Cadence" Level="1">
+            <ComponentGroupRef Id="HarvestedComponents" />
+            <ComponentRef Id="ApplicationShortcut" />
+            <ComponentRef Id="ApplicationShortcutDesktop" />
+        </Feature>
+
+        <!-- Basic UI -->
+        <UIRef Id="WixUI_Minimal" />
+        <!-- Skip license agreement dialog -->
+        <WixVariable Id="WixUILicenseRtf" Value="src\assets\license.rtf" />
+    </Product>
+</Wix>
