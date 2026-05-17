@@ -4,8 +4,24 @@ from pathlib import Path
 from typing import Callable, Optional
 import threading
 import time
+import os
+import ctypes
 
 logger = logging.getLogger(__name__)
+
+def _prevent_sleep(prevent: bool):
+    """Prevent or allow Windows from sleeping and turning off display"""
+    if os.name == 'nt':
+        try:
+            # ES_CONTINUOUS = 0x80000000
+            # ES_SYSTEM_REQUIRED = 0x00000001
+            # ES_DISPLAY_REQUIRED = 0x00000002
+            if prevent:
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
+            else:
+                ctypes.windll.kernel32.SetThreadExecutionState(0x80000000)
+        except Exception as e:
+            logger.debug(f"Could not set thread execution state: {e}")
 
 class AudioPlayer:
     """Audio playback engine using pygame-mixer"""
@@ -114,6 +130,7 @@ class AudioPlayer:
             
             # Start position tracking thread
             self._start_position_tracking()
+            _prevent_sleep(True)
             
             return True
         
@@ -135,6 +152,7 @@ class AudioPlayer:
             self.is_paused = True
             self.is_playing = False
             self._stop_position_tracking()
+            _prevent_sleep(False)
             logger.debug("Paused playback")
             return True
         
@@ -154,6 +172,7 @@ class AudioPlayer:
             self.is_paused = False
             self.current_position = 0
             self._stop_position_tracking()
+            _prevent_sleep(False)
             logger.debug("Stopped playback")
             return True
         
@@ -278,6 +297,7 @@ class AudioPlayer:
         self.is_playing = False
         self.current_position = 0
         self._stop_position_tracking()
+        _prevent_sleep(False)
         
         if self.on_track_ended:
             self.on_track_ended()
@@ -286,6 +306,7 @@ class AudioPlayer:
     
     def __del__(self):
         """Cleanup on exit"""
+        _prevent_sleep(False)
         try:
             pygame.mixer.quit()
         except:
