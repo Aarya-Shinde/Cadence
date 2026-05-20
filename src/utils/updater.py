@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class Updater:
     """Handle app updates"""
     
-    def __init__(self, current_version: str = "1.0.1"):
+    def __init__(self, current_version: str = "1.0.2"):
         self.current_version = current_version
         self.remote_version_url = "https://api.github.com/repos/Aarya-Shinde/Cadence/releases/latest"
         self.timeout = 10  # seconds
