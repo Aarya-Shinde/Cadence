@@ -20,7 +20,7 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.11' # Use stable Python version
+        python-version: '3.11'
         cache: 'pip'
 
     - name: Install dependencies
@@ -29,15 +29,41 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller Pillow
 
-    - name: Build with PyInstaller
-      run: python build_cadence.py
+    - name: Download FFmpeg into libraries bin
+      run: |
+        # Download the latest ffmpeg release from BtbN's builds (same source as most ffmpeg Windows distros)
+        $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
+        $dest = "ffmpeg-download.zip"
+        Write-Host "Downloading FFmpeg..."
+        Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
 
-    - name: Zip the application (For Auto-Updater)
-      run: Compress-Archive -Path dist\Cadence -DestinationPath Cadence-Windows.zip
+        Write-Host "Extracting FFmpeg..."
+        Expand-Archive -Path $dest -DestinationPath "ffmpeg-extracted" -Force
+
+        # Find the bin folder (structure: ffmpeg-master-latest-win64-gpl/bin/)
+        $binDir = Get-ChildItem -Path "ffmpeg-extracted" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1 | Split-Path -Parent
+        Write-Host "Found ffmpeg binaries at: $binDir"
+
+        # Copy into libraries bin
+        New-Item -ItemType Directory -Force -Path "libraries bin" | Out-Null
+        Copy-Item "$binDir\ffmpeg.exe"  "libraries bin\ffmpeg.exe"  -Force
+        Copy-Item "$binDir\ffprobe.exe" "libraries bin\ffprobe.exe" -Force
+        Copy-Item "$binDir\ffplay.exe"  "libraries bin\ffplay.exe"  -Force -ErrorAction SilentlyContinue
+
+        # Verify
+        Write-Host "[OK] ffmpeg.exe: $((Get-Item 'libraries bin\ffmpeg.exe').Length) bytes"
+        Write-Host "[OK] ffprobe.exe: $((Get-Item 'libraries bin\ffprobe.exe').Length) bytes"
+
+        # Clean up
+        Remove-Item $dest -Force
+        Remove-Item "ffmpeg-extracted" -Recurse -Force
+
+    - name: Build with PyInstaller + auto-package
+      # build_cadence.py now automatically creates dist/Cadence.zip and dist/Cadence.zip.sha256
+      run: python build_cadence.py
 
     - name: Build MSI Installer (For New Users)
       run: |
-        # WiX v3 is pre-installed on GitHub windows-latest runners
         heat dir "dist\Cadence" -cg HarvestedComponents -dr INSTALLFOLDER -scom -sreg -srd -var var.SourceDir -gg -out components.wxs
         candle -dSourceDir="dist\Cadence" cadence.wxs components.wxs -ext WixUIExtension
         light -b "dist\Cadence" -out dist\Cadence-Installer.msi cadence.wixobj components.wixobj -ext WixUIExtension -sval
@@ -46,7 +72,13 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: Cadence-Windows-Zip
-        path: Cadence-Windows.zip
+        path: dist\Cadence.zip
+
+    - name: Upload Checksum Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Cadence-Windows-Sha256
+        path: dist\Cadence.zip.sha256
 
     - name: Upload MSI Artifact
       uses: actions/upload-artifact@v4
@@ -59,7 +91,8 @@ jobs:
       if: startsWith(github.ref, 'refs/tags/v')
       with:
         files: |
-          Cadence-Windows.zip
+          dist\Cadence.zip
+          dist\Cadence.zip.sha256
           dist\Cadence-Installer.msi
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -61,7 +61,7 @@ def package():
         return
 
     # ---- 1. Create the zip ---------------------------------------------------
-    print(f"\nZipping {cadence_dir} → {zip_path} ...")
+    print(f"\nZipping {cadence_dir} -> {zip_path} ...")
     if zip_path.exists():
         zip_path.unlink()
 
