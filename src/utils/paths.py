@@ -23,10 +23,28 @@ def resource_path(relative_path):
 # Change this one constant to relocate everything.
 _BASE = Path(os.path.abspath("."))
 
-def get_ffmpeg_path() -> str:
-    """ Return path to bundled ffmpeg executable folder """
-    # We bundle ffmpeg into a 'bin' folder inside the EXE
-    return resource_path("bin")
+from typing import Optional
+
+def get_ffmpeg_path() -> Optional[str]:
+    """ Return path to bundled ffmpeg executable folder or system fallback """
+    try:
+        base_path = sys._MEIPASS
+    except Exception:
+        base_path = os.path.abspath(".")
+
+    paths_to_check = [
+        os.path.join(base_path, "_internal", "bin"),
+        os.path.join(base_path, "bin"),
+        os.path.join(base_path, "libraries bin"),
+        os.path.join(os.path.abspath("."), "libraries bin")
+    ]
+    
+    for p in paths_to_check:
+        if os.path.exists(os.path.join(p, "ffmpeg.exe")) or os.path.exists(os.path.join(p, "ffmpeg")):
+            return p
+            
+    # Fallback to None so yt-dlp uses its default PATH search
+    return None
 
 DB_PATH          = str(_BASE / "cadence.db")          # SQLite: songs + lyrics + album_art
 CONFIG_PATH      = str(_BASE / "cadence_config.json") # User settings

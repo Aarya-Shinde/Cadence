@@ -361,22 +361,33 @@ class SettingsDialog(QDialog):
     @pyqtSlot(object)
     def _on_check_done(self, result):
         if result:
-            version, url = result
+            version, url, sha256_url = result
             self.update_status_label.setText(f"Update Available: v{version}. Downloading...")
             self.update_progress.setValue(0)
             self.update_progress.show()
-            
+            self._pending_zip_path = None
+
             import threading
             def _download_task():
                 def progress(downloaded, total):
                     if total > 0:
                         from PyQt6.QtCore import QMetaObject, Q_ARG, Qt
-                        QMetaObject.invokeMethod(self, "_on_download_progress", Qt.ConnectionType.QueuedConnection, Q_ARG(int, downloaded), Q_ARG(int, total))
-                
-                success = self._updater.download_update(url, save_path="update.zip", progress_callback=progress)
+                        QMetaObject.invokeMethod(
+                            self, "_on_download_progress",
+                            Qt.ConnectionType.QueuedConnection,
+                            Q_ARG(int, downloaded), Q_ARG(int, total)
+                        )
+
+                zip_path = self._updater.download_update(
+                    url, sha256_url=sha256_url, progress_callback=progress
+                )
                 from PyQt6.QtCore import QMetaObject, Q_ARG, Qt
-                QMetaObject.invokeMethod(self, "_on_download_done", Qt.ConnectionType.QueuedConnection, Q_ARG(bool, success))
-                
+                QMetaObject.invokeMethod(
+                    self, "_on_download_done",
+                    Qt.ConnectionType.QueuedConnection,
+                    Q_ARG(object, zip_path)
+                )
+
             threading.Thread(target=_download_task, daemon=True).start()
         else:
             self.update_status_label.setText("You are up to date.")
@@ -390,27 +401,35 @@ class SettingsDialog(QDialog):
         mb_tot = total / (1024*1024)
         self.update_status_label.setText(f"Downloading: {mb_down:.1f} / {mb_tot:.1f} MB")
 
-    @pyqtSlot(bool)
-    def _on_download_done(self, success):
+    @pyqtSlot(object)
+    def _on_download_done(self, zip_path):
         self.check_btn.setEnabled(True)
-        if success:
+        if zip_path:
             from ui.style import Colors
-            self.update_status_label.setText("Update ready to install.")
+            self._pending_zip_path = zip_path
+            self.update_status_label.setText("Update downloaded & verified. Ready to install.")
             self.update_status_label.setStyleSheet(f"color: {Colors.SUCCESS};")
             self.update_progress.setValue(100)
             self.install_btn.show()
         else:
             from ui.style import Colors
-            self.update_status_label.setText("Failed to download update.")
+            self._pending_zip_path = None
+            self.update_status_label.setText("Download failed or update package is invalid.")
             self.update_status_label.setStyleSheet(f"color: {Colors.ERROR};")
             self.update_progress.hide()
 
     def on_install_update(self):
         """Install the downloaded update"""
+        if not getattr(self, '_pending_zip_path', None):
+            self.update_status_label.setText("No update package ready. Please download first.")
+            return
+
         self.install_btn.setEnabled(False)
-        self.update_status_label.setText("Installing... App will restart.")
-        started = self._updater.install_update("update.zip")
-        if started is False:
+        self.update_status_label.setText("Installing... App will restart shortly.")
+        result = self._updater.install_update(self._pending_zip_path)
+        if result is False:
+            # Running from source — can't auto-update
+            self.install_btn.setEnabled(True)
             self.update_status_label.setText("Cannot auto-update when running from source.")
             from ui.style import Colors
             self.update_status_label.setStyleSheet(f"color: {Colors.ERROR};")

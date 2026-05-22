@@ -2,6 +2,8 @@ import os
 import sys
 import subprocess
 import shutil
+import hashlib
+import zipfile
 from pathlib import Path
 
 # Paths
@@ -9,6 +11,7 @@ PROJECT_ROOT = Path(os.path.abspath("."))
 SRC_DIR = PROJECT_ROOT / "src"
 ASSETS_DIR = SRC_DIR / "assets"
 BIN_DIR = PROJECT_ROOT / "libraries bin"
+DIST_DIR = PROJECT_ROOT / "dist"
 
 def convert_icon():
     """Convert PNG icon to ICO format if needed."""
@@ -38,8 +41,61 @@ def convert_icon():
         print(f"[WARNING] Failed to convert icon: {e}")
         return None
 
+
+def package():
+    """Zip dist/Cadence → Cadence.zip and generate a matching SHA-256 checksum file.
+
+    The resulting files are placed in dist/ alongside the Cadence folder:
+        dist/Cadence.zip
+        dist/Cadence.zip.sha256   ← upload both of these to your GitHub Release
+
+    The updater will automatically fetch and verify the checksum on the user's
+    machine before installing, so never skip this step.
+    """
+    cadence_dir = DIST_DIR / "Cadence"
+    zip_path    = DIST_DIR / "Cadence.zip"
+    sha_path    = DIST_DIR / "Cadence.zip.sha256"
+
+    if not cadence_dir.exists():
+        print("[ERROR] dist/Cadence folder not found — run build first.")
+        return
+
+    # ---- 1. Create the zip ---------------------------------------------------
+    print(f"\nZipping {cadence_dir} → {zip_path} ...")
+    if zip_path.exists():
+        zip_path.unlink()
+
+    sha256 = hashlib.sha256()
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+        for file in sorted(cadence_dir.rglob("*")):
+            if file.is_file():
+                arcname = "Cadence/" + file.relative_to(cadence_dir).as_posix()
+                zf.write(file, arcname)
+
+    print(f"[OK] Created {zip_path.name}  ({zip_path.stat().st_size / 1_048_576:.1f} MB)")
+
+    # ---- 2. Generate SHA-256 checksum ----------------------------------------
+    print("Computing SHA-256 checksum...")
+    sha256 = hashlib.sha256()
+    with open(zip_path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            sha256.update(chunk)
+    digest = sha256.hexdigest().lower()
+
+    sha_path.write_text(f"{digest}  Cadence.zip\n", encoding="utf-8")
+    print(f"[OK] Checksum file written: {sha_path.name}")
+    print(f"     SHA-256: {digest}")
+
+    # ---- 3. Summary ----------------------------------------------------------
+    print("\n=== RELEASE PACKAGE READY ===")
+    print(f"  Upload to GitHub Release:")
+    print(f"    {zip_path}")
+    print(f"    {sha_path}")
+    print("\n  Both files must be attached to the release for checksum verification to work.")
+
+
 def build():
-    """Run PyInstaller with correct configurations."""
+    """Run PyInstaller with correct configurations, then package for release."""
     print("=== Building Cadence Desktop App ===")
     
     # Check if PyInstaller is installed
@@ -73,22 +129,27 @@ def build():
         cmd.append(f"--add-binary={BIN_DIR}/ffmpeg.exe;bin")
         print("[OK] Included ffmpeg.exe")
     else:
-        print("[WARNING] ffmpeg.exe not found in 'libraries bin'.")
+        print("[WARNING] ffmpeg.exe not found in 'libraries bin'. Downloads will NOT work!")
         
     if (BIN_DIR / "ffprobe.exe").exists():
         cmd.append(f"--add-binary={BIN_DIR}/ffprobe.exe;bin")
         print("[OK] Included ffprobe.exe")
+    else:
+        print("[WARNING] ffprobe.exe not found in 'libraries bin'.")
         
     # Main script
     cmd.append(str(SRC_DIR / "main.py"))
     
-    # 3. Execute
+    # 3. Execute PyInstaller
     print("\nRunning PyInstaller (This may take a minute or two)...")
     subprocess.run(cmd, check=True)
     
     print("\n=== BUILD COMPLETE ===")
-    print(r"Your executable is located in: \dist\Cadence\Cadence.exe")
-    print("Note: To share it, ZIP the entire 'Cadence' folder inside 'dist'.")
+    print(r"Executable: dist\Cadence\Cadence.exe")
+
+    # 4. Package into a release-ready zip with checksum
+    package()
+
 
 if __name__ == "__main__":
     build()

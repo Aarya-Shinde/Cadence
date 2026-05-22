@@ -189,7 +189,6 @@ class MusicDownloader:
         ydl_opts = {
             "format": "bestaudio/best",
             "outtmpl": str(self.output_folder / "%(title)s.%(ext)s"),
-            "ffmpeg_location": get_ffmpeg_path(),
             "noplaylist": True,
             "restrictfilenames": True,
             "quiet": True,
@@ -211,6 +210,10 @@ class MusicDownloader:
                 },
             ],
         }
+
+        ffmpeg_path = get_ffmpeg_path()
+        if ffmpeg_path:
+            ydl_opts["ffmpeg_location"] = ffmpeg_path
 
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
