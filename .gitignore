@@ -15,5 +15,5 @@ cadence_config.json
 build/
 dist/
 *.spec
-libraries bin/
+
 *.ico

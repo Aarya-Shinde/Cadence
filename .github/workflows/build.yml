@@ -29,37 +29,9 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller Pillow
 
-    - name: Download FFmpeg into libraries bin
-      run: |
-        # Download the latest ffmpeg release from BtbN's builds (same source as most ffmpeg Windows distros)
-        $url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
-        $dest = "ffmpeg-download.zip"
-        Write-Host "Downloading FFmpeg..."
-        Invoke-WebRequest -Uri $url -OutFile $dest -UseBasicParsing
-
-        Write-Host "Extracting FFmpeg..."
-        Expand-Archive -Path $dest -DestinationPath "ffmpeg-extracted" -Force
-
-        # Find the bin folder (structure: ffmpeg-master-latest-win64-gpl/bin/)
-        $binDir = Get-ChildItem -Path "ffmpeg-extracted" -Recurse -Filter "ffmpeg.exe" | Select-Object -First 1 | Split-Path -Parent
-        Write-Host "Found ffmpeg binaries at: $binDir"
-
-        # Copy into libraries bin
-        New-Item -ItemType Directory -Force -Path "libraries bin" | Out-Null
-        Copy-Item "$binDir\ffmpeg.exe"  "libraries bin\ffmpeg.exe"  -Force
-        Copy-Item "$binDir\ffprobe.exe" "libraries bin\ffprobe.exe" -Force
-        Copy-Item "$binDir\ffplay.exe"  "libraries bin\ffplay.exe"  -Force -ErrorAction SilentlyContinue
-
-        # Verify
-        Write-Host "[OK] ffmpeg.exe: $((Get-Item 'libraries bin\ffmpeg.exe').Length) bytes"
-        Write-Host "[OK] ffprobe.exe: $((Get-Item 'libraries bin\ffprobe.exe').Length) bytes"
-
-        # Clean up
-        Remove-Item $dest -Force
-        Remove-Item "ffmpeg-extracted" -Recurse -Force
-
     - name: Build with PyInstaller + auto-package
-      # build_cadence.py now automatically creates dist/Cadence.zip and dist/Cadence.zip.sha256
+      # build_cadence.py uses 'libraries bin\' (committed to repo) to bundle
+      # ffmpeg/ffprobe, then automatically creates dist\Cadence.zip + .sha256
       run: python build_cadence.py
 
     - name: Build MSI Installer (For New Users)
