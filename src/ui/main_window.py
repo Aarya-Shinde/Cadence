@@ -3,7 +3,7 @@ from PyQt6.QtWidgets import (
     QLabel, QMenu, QMessageBox, QFileDialog, QFrame,
     QPushButton, QLineEdit
 )
-from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QTimer, QObject, pyqtSignal, QSize, QVariantAnimation
 from PyQt6.QtGui import QFont, QIcon, QPixmap, QColor, QKeySequence, QShortcut
 import logging
 import threading
@@ -89,6 +89,121 @@ class Icons:
     UPLOAD = "upload"
  
  
+# ============================================================================
+# ANIMATED HEADER BUTTON
+# ============================================================================
+
+class AnimatedHeaderButton(QPushButton):
+    """A custom button for the header with smooth scale and background color hover animations."""
+    def __init__(self, icon_name: str, tooltip: str = "", is_checkable: bool = False, parent=None):
+        super().__init__(parent)
+        self.icon_name = icon_name
+        self.is_checkable = is_checkable
+        self.setCheckable(is_checkable)
+        self.setFixedSize(36, 36)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        if tooltip:
+            self.setToolTip(tooltip)
+            
+        self.current_icon_size = 16
+        self.current_bg = QColor(0, 0, 0, 0)
+        
+        # Load icon
+        self.update_icon()
+        
+        # Animation for icon scaling
+        self.icon_anim = QVariantAnimation(self)
+        self.icon_anim.setDuration(120)
+        self.icon_anim.valueChanged.connect(self._animate_icon_size)
+        
+        # Animation for background color fade
+        self.bg_anim = QVariantAnimation(self)
+        self.bg_anim.setDuration(150)
+        self.bg_anim.valueChanged.connect(self._animate_bg_color)
+        
+        self.update_style()
+        self.toggled.connect(self._on_toggled)
+
+    def _on_toggled(self, checked):
+        self.update_icon()
+        self.update_style()
+
+    def setChecked(self, checked):
+        super().setChecked(checked)
+        self.update_icon()
+        self.update_style()
+
+    def update_icon(self):
+        name = self.icon_name
+        if self.icon_name == "heart":
+            name = "heart-filled" if self.isChecked() else "heart"
+            
+        if self.isChecked():
+            color = Colors.BACKGROUND_PRIMARY
+        else:
+            color = Colors.ACCENT_PRIMARY
+            
+        self.setIcon(get_icon(name, color=color))
+        self.setIconSize(QSize(self.current_icon_size, self.current_icon_size))
+
+    def _animate_icon_size(self, value):
+        self.current_icon_size = value
+        self.setIconSize(QSize(value, value))
+
+    def _animate_bg_color(self, color):
+        self.current_bg = color
+        self.update_style()
+
+    def update_style(self):
+        bg_rgba = f"rgba({self.current_bg.red()}, {self.current_bg.green()}, {self.current_bg.blue()}, {self.current_bg.alphaF()})"
+        
+        if self.isChecked():
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {Colors.ACCENT_PRIMARY};
+                    border-radius: 6px;
+                    border: none;
+                }}
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {bg_rgba};
+                    border-radius: 6px;
+                    border: 1px solid transparent;
+                }}
+                QPushButton:hover {{
+                    border-color: {Colors.BORDER_LIGHT};
+                }}
+            """)
+
+    def enterEvent(self, event):
+        if not self.isChecked():
+            self.icon_anim.stop()
+            self.icon_anim.setStartValue(self.current_icon_size)
+            self.icon_anim.setEndValue(20)
+            self.icon_anim.start()
+            
+            self.bg_anim.stop()
+            self.bg_anim.setStartValue(self.current_bg)
+            self.bg_anim.setEndValue(QColor(Colors.BACKGROUND_TERTIARY))
+            self.bg_anim.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if not self.isChecked():
+            self.icon_anim.stop()
+            self.icon_anim.setStartValue(self.current_icon_size)
+            self.icon_anim.setEndValue(16)
+            self.icon_anim.start()
+            
+            self.bg_anim.stop()
+            self.bg_anim.setStartValue(self.current_bg)
+            self.bg_anim.setEndValue(QColor(0, 0, 0, 0))
+            self.bg_anim.start()
+        super().leaveEvent(event)
+
+
 # ============================================================================
 # MAIN WINDOW
 # ============================================================================
@@ -211,36 +326,56 @@ class MainWindow(QMainWindow):
             QFrame#header {{
                 background-color: {Colors.BACKGROUND_SECONDARY};
                 border-bottom: 1px solid {Colors.BORDER_LIGHT};
-                padding: 12px 16px;
+                padding: 6px 16px;
             }}
         """)
         
         layout = QHBoxLayout()
-        layout.setContentsMargins(16, 8, 16, 8)
-        layout.setSpacing(16)
+        layout.setContentsMargins(16, 4, 16, 4)
+        layout.setSpacing(12)
         
-        # Logo
-        logo_layout = QHBoxLayout()
-        logo_layout.setSpacing(10)
-        
-        logo_icon = QLabel()
-        logo_icon.setPixmap(get_icon(Icons.MUSIC).pixmap(24, 24))
-        logo_layout.addWidget(logo_icon)
-        
+        # Logo (Text only using custom Musical Tone font)
         logo_label = QLabel("Cadence")
-        logo_label.setFont(Fonts.HEADING_LARGE)
+        logo_label.setFont(Fonts.LOGO_FONT)
         logo_label.setStyleSheet(f"""
             QLabel {{
                 color: {Colors.ACCENT_PRIMARY};
-                font-weight: 600;
                 letter-spacing: 0.5px;
             }}
         """)
-        logo_layout.addWidget(logo_label)
-        layout.addLayout(logo_layout)
+        layout.addWidget(logo_label)
+        
+        # Spacer for more space between logo and menu
+        layout.addSpacing(20)
+        
+        # Unified Menu button next to logo
+        self.menu_btn = QPushButton("Menu ▾")
+        self.menu_btn.setFont(Fonts.BODY_MEDIUM)
+        self.menu_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.menu_btn.setFixedHeight(30)
+        self.menu_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1px solid transparent;
+                color: {Colors.TEXT_SECONDARY};
+                border-radius: 6px;
+                padding: 4px 10px;
+                font-weight: 500;
+                font-size: 10pt;
+            }}
+            QPushButton:hover {{
+                background: {Colors.BACKGROUND_TERTIARY};
+                border-color: {Colors.ACCENT_PRIMARY};
+                color: {Colors.ACCENT_PRIMARY};
+            }}
+            QPushButton::menu-indicator {{
+                image: none;
+            }}
+        """)
+        layout.addWidget(self.menu_btn)
         
         # Spacer
-        layout.addSpacing(20)
+        layout.addSpacing(10)
         
         # Status
         self.status_label = QLabel("Ready to play music")
@@ -256,80 +391,25 @@ class MainWindow(QMainWindow):
         self.song_count_label.setStyleSheet(f"color: {Colors.TEXT_TERTIARY};")
         layout.addWidget(self.song_count_label)
 
-        # Download button in header
-        self.header_download_btn = QPushButton(" Download Song")
-        self.header_download_btn.setIcon(get_icon("download", color="white"))
-        self.header_download_btn.setIconSize(QSize(16, 16))
-        self.header_download_btn.setFont(Fonts.BODY_SMALL)
-        self.header_download_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.header_download_btn.setFixedHeight(32)
-        self.header_download_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: 1.5px solid {Colors.ACCENT_PRIMARY};
-                color: {Colors.ACCENT_PRIMARY};
-                border-radius: 6px;
-                padding: 4px 12px;
-                font-size: 10pt;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background: {Colors.ACCENT_PRIMARY};
-                color: {Colors.BACKGROUND_PRIMARY};
-            }}
-            QPushButton:pressed {{
-                background: {Colors.ACCENT_ACTIVE};
-                border-color: {Colors.ACCENT_ACTIVE};
-            }}
-        """)
+        # Download button
+        self.header_download_btn = AnimatedHeaderButton("download", tooltip="Download Song")
         self.header_download_btn.clicked.connect(self.on_download_song)
         layout.addWidget(self.header_download_btn)
         
         # View Favorites toggle button
-        self.view_favs_btn = QPushButton()
-        self.view_favs_btn.setIcon(get_icon("heart"))
-        self.view_favs_btn.setFixedSize(32, 32)
-        self.view_favs_btn.setCheckable(True)
-        self.view_favs_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.view_favs_btn.setToolTip("Show Favorites Only")
-        self.view_favs_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: 1.5px solid {Colors.ACCENT_PRIMARY};
-                border-radius: 6px;
-                padding: 4px;
-                color: {Colors.ACCENT_PRIMARY};
-            }}
-            QPushButton:hover {{
-                background: {Colors.ACCENT_HOVER};
-            }}
-            QPushButton:checked {{
-                background: {Colors.ACCENT_PRIMARY};
-                color: {Colors.BACKGROUND_PRIMARY};
-            }}
-        """)
+        self.view_favs_btn = AnimatedHeaderButton("heart", tooltip="Show Favorites Only", is_checkable=True)
         self.view_favs_btn.clicked.connect(self.on_toggle_favorites_view)
         layout.addWidget(self.view_favs_btn)
         
         # Toggle playlist button
-        self.toggle_playlist_btn = QPushButton()
-        self.toggle_playlist_btn.setIcon(get_icon("library", color="white"))
-        self.toggle_playlist_btn.setFixedSize(32, 32)
-        self.toggle_playlist_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.toggle_playlist_btn.setToolTip("Toggle Playlist View")
-        self.toggle_playlist_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: 1.5px solid {Colors.ACCENT_PRIMARY};
-                border-radius: 6px;
-                padding: 4px;
-            }}
-            QPushButton:hover {{
-                background: {Colors.ACCENT_HOVER};
-            }}
-        """)
+        self.toggle_playlist_btn = AnimatedHeaderButton("library", tooltip="Toggle Playlist View")
         self.toggle_playlist_btn.clicked.connect(self.on_toggle_playlist)
         layout.addWidget(self.toggle_playlist_btn)
+        
+        # Compact mode toggle button
+        self.mini_mode_btn = AnimatedHeaderButton("arrow-down-left", tooltip="Switch to Compact Mode", is_checkable=True)
+        self.mini_mode_btn.clicked.connect(self.on_toggle_mini_mode)
+        layout.addWidget(self.mini_mode_btn)
         
         header.setLayout(layout)
         return header
@@ -359,86 +439,64 @@ class MainWindow(QMainWindow):
         return container
     
     def setup_menus(self):
-        """Create menu bar with icons and styling"""
-        menubar = self.menuBar()
+        """Configure the unified dropdown menu in the header"""
+        # Hide standard menu bar to save vertical space
+        self.menuBar().hide()
         
-        # File menu
-        file_menu = menubar.addMenu("File")
+        # Create the unified menu
+        self.main_menu = QMenu(self)
+        
+        # File submenu
+        file_menu = self.main_menu.addMenu("File")
         
         scan_action = file_menu.addAction("Scan Music Folder")
         scan_action.setIcon(get_icon(Icons.FOLDER))
         scan_action.triggered.connect(self.on_scan_folder)
+        self.addAction(scan_action)  # Add to window so shortcut works
 
         download_action = file_menu.addAction("Download Song")
         download_action.setIcon(get_icon(Icons.DOWNLOAD))
         download_action.triggered.connect(self.on_download_song)
+        self.addAction(download_action)
         
         file_menu.addSeparator()
         
         settings_action = file_menu.addAction("Settings")
         settings_action.setIcon(get_icon(Icons.SETTINGS))
         settings_action.triggered.connect(self.on_open_settings)
+        self.addAction(settings_action)
 
         file_menu.addSeparator()
         
         exit_action = file_menu.addAction("Exit")
         exit_action.triggered.connect(self.close)
+        self.addAction(exit_action)
         
         # Edit menu
-        edit_menu = menubar.addMenu("Edit")
+        edit_menu = self.main_menu.addMenu("Edit")
         
         clear_action = edit_menu.addAction("Clear All Songs")
         clear_action.setIcon(get_icon(Icons.TRASH))
         clear_action.triggered.connect(self.on_clear_library)
+        self.addAction(clear_action)
         
         # Help menu
-        help_menu = menubar.addMenu("Help")
+        help_menu = self.main_menu.addMenu("Help")
 
         check_updates_action = help_menu.addAction("Check for Updates")
         check_updates_action.setIcon(get_icon(Icons.DOWNLOAD))
         check_updates_action.triggered.connect(self.on_check_updates_manual)
+        self.addAction(check_updates_action)
 
         help_menu.addSeparator()
         
         about_action = help_menu.addAction("About")
         about_action.setIcon(get_icon(Icons.INFO))
         about_action.triggered.connect(self.on_about)
+        self.addAction(about_action)
 
-        # Mini Player toggle in menu bar corner (Classy Icon-only)
-        self.mini_mode_btn = QPushButton("")
-        self.mini_mode_btn.setIcon(get_icon("arrow-down-left", color="white"))
-        self.mini_mode_btn.setIconSize(QSize(16, 16))
-        self.mini_mode_btn.setFixedSize(32, 28)
-        self.mini_mode_btn.setCheckable(True)
-        self.mini_mode_btn.setFont(Fonts.BODY_SMALL)
-        self.mini_mode_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.mini_mode_btn.setToolTip("Switch to Compact Mode")
-        self.mini_mode_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: 1.5px solid {Colors.ACCENT_PRIMARY};
-                border-radius: 6px;
-                margin-right: 8px;
-                margin-top: 2px;
-                color: {Colors.ACCENT_PRIMARY};
-                font-weight: 600;
-                padding: 0 12px;
-            }}
-            QPushButton:hover {{
-                background: {Colors.ACCENT_PRIMARY};
-                color: {Colors.BACKGROUND_PRIMARY};
-            }}
-            QPushButton:checked {{
-                background: {Colors.ACCENT_PRIMARY};
-                color: {Colors.BACKGROUND_PRIMARY};
-            }}
-            QPushButton:pressed {{
-                background: {Colors.ACCENT_ACTIVE};
-                border-color: {Colors.ACCENT_ACTIVE};
-            }}
-        """)
-        self.mini_mode_btn.clicked.connect(self.on_toggle_mini_mode)
-        menubar.setCornerWidget(self.mini_mode_btn, Qt.Corner.TopRightCorner)
+        # Connect button to show the menu
+        self.menu_btn.setMenu(self.main_menu)
     
     def connect_signals(self):
         """Connect all signals"""
@@ -915,7 +973,6 @@ class MainWindow(QMainWindow):
     def on_toggle_favorites_view(self, checked: bool):
         """Toggle between all songs and favorites only"""
         self.show_only_favorites = checked
-        self.view_favs_btn.setIcon(get_icon("heart-filled" if checked else "heart"))
         self.load_playlist()
         
         if checked:
