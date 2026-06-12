@@ -9,8 +9,10 @@ Modern Music Player UI with:
 - Modern icon support
 """
 
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtGui import QFont, QColor, QFontDatabase
 from PyQt6.QtCore import Qt
+from pathlib import Path
+
 
 # ============================================================================
 # COLOR PALETTES - Midnight Black + Pastel Purple
@@ -96,6 +98,10 @@ class Fonts:
     MONO = QFont("Consolas", 10)            # Code/monospace
     BUTTON = get_font("medium", 11)         # Button text
     LABEL = get_font("medium", 10)          # Labels
+    
+    # Musical logo font
+    LOGO_FONT = QFont("Musical Tone", 28)
+
 
 
 # ============================================================================
@@ -683,6 +689,11 @@ class ThemeManager:
         Args:
             app: QApplication instance
         """
+        # Load custom musical font if it exists (must be done after QApplication is initialized)
+        FONT_PATH = Path(__file__).parent.parent / "assets" / "fonts" / "MusicalTone.otf"
+        if FONT_PATH.exists():
+            QFontDatabase.addApplicationFont(str(FONT_PATH))
+            
         app.setStyleSheet(STYLESHEET)
     
     @staticmethod

@@ -3,8 +3,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QSlider, QStyle, QStyleOptionSlider
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QVariantAnimation
+from PyQt6.QtGui import QFont, QIcon, QColor
 import logging
  
 from ui.style import Colors, Fonts
@@ -56,6 +56,142 @@ class Icons:
     MUSIC = "music"
     SHUFFLE = "shuffle"
     REPEAT = "repeat"
+ 
+ 
+# ============================================================================
+# ANIMATED PLAYER BUTTON
+# ============================================================================
+
+class AnimatedPlayerButton(QPushButton):
+    """Custom player control button with hover scale and background animations."""
+    def __init__(self, icon_name: str, tooltip: str = "", base_size: int = 32, icon_size: int = 18, is_checkable: bool = False, is_play_btn: bool = False, parent=None):
+        super().__init__(parent)
+        self.icon_name = icon_name
+        self.is_checkable = is_checkable
+        self.is_play_btn = is_play_btn
+        self.setCheckable(is_checkable)
+        self.setFixedSize(base_size, base_size)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        if tooltip:
+            self.setToolTip(tooltip)
+            
+        self.base_icon_size = icon_size
+        self.current_icon_size = icon_size
+        
+        # Determine background behavior
+        if self.is_play_btn:
+            self.current_bg = QColor(Colors.ACCENT_PRIMARY)
+        else:
+            self.current_bg = QColor(0, 0, 0, 0)
+            
+        # Load icon
+        self.update_icon()
+        
+        # Animation for icon scaling
+        self.icon_anim = QVariantAnimation(self)
+        self.icon_anim.setDuration(120)
+        self.icon_anim.valueChanged.connect(self._animate_icon_size)
+        
+        # Animation for background color fade
+        self.bg_anim = QVariantAnimation(self)
+        self.bg_anim.setDuration(150)
+        self.bg_anim.valueChanged.connect(self._animate_bg_color)
+        
+        self.update_style()
+        self.toggled.connect(self._on_toggled)
+
+    def _on_toggled(self, checked):
+        self.update_icon()
+        self.update_style()
+
+    def setChecked(self, checked):
+        super().setChecked(checked)
+        self.update_icon()
+        self.update_style()
+
+    def update_icon(self):
+        name = self.icon_name
+        
+        # Color rules
+        if self.is_play_btn:
+            color = Colors.BACKGROUND_PRIMARY
+        elif name == "heart-filled":
+            color = Colors.ERROR  # Red for favorite
+        elif self.isChecked():
+            color = Colors.ACCENT_PRIMARY
+        else:
+            color = Colors.TEXT_SECONDARY
+            
+        self.setIcon(get_icon(name, color=color))
+        self.setIconSize(QSize(self.current_icon_size, self.current_icon_size))
+
+    def _animate_icon_size(self, value):
+        self.current_icon_size = value
+        self.setIconSize(QSize(value, value))
+
+    def _animate_bg_color(self, color):
+        self.current_bg = color
+        self.update_style()
+
+    def update_style(self):
+        if self.is_play_btn:
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                        stop:0 {Colors.ACCENT_HOVER},
+                        stop:1 {Colors.ACCENT_PRIMARY});
+                    border: none;
+                    border-radius: {self.width() // 2}px;
+                }}
+                QPushButton:pressed {{
+                    background-color: {Colors.ACCENT_ACTIVE};
+                }}
+            """)
+        else:
+            bg_rgba = f"rgba({self.current_bg.red()}, {self.current_bg.green()}, {self.current_bg.blue()}, {self.current_bg.alphaF()})"
+            
+            if self.isChecked():
+                self.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: rgba(177, 156, 217, 0.15);
+                        border-radius: 6px;
+                        border: 1px solid rgba(177, 156, 217, 0.3);
+                    }}
+                """)
+            else:
+                self.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {bg_rgba};
+                        border-radius: 6px;
+                        border: 1px solid transparent;
+                    }}
+                """)
+
+    def enterEvent(self, event):
+        self.icon_anim.stop()
+        self.icon_anim.setStartValue(self.current_icon_size)
+        self.icon_anim.setEndValue(self.base_icon_size + 4)
+        self.icon_anim.start()
+        
+        if not self.isChecked() and not self.is_play_btn:
+            self.bg_anim.stop()
+            self.bg_anim.setStartValue(self.current_bg)
+            self.bg_anim.setEndValue(QColor(Colors.BACKGROUND_TERTIARY))
+            self.bg_anim.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.icon_anim.stop()
+        self.icon_anim.setStartValue(self.current_icon_size)
+        self.icon_anim.setEndValue(self.base_icon_size)
+        self.icon_anim.start()
+        
+        if not self.isChecked() and not self.is_play_btn:
+            self.bg_anim.stop()
+            self.bg_anim.setStartValue(self.current_bg)
+            self.bg_anim.setEndValue(QColor(0, 0, 0, 0))
+            self.bg_anim.start()
+        super().leaveEvent(event)
  
  
 class EnhancedPlayerWidget(QWidget):
@@ -154,21 +290,7 @@ class EnhancedPlayerWidget(QWidget):
         title_row.addWidget(self.now_playing_title)
         
         # Favorite button (now after title)
-        self.fav_btn = QPushButton()
-        self.fav_btn.setIcon(get_icon("heart"))
-        self.fav_btn.setIconSize(QSize(28, 28))
-        self.fav_btn.setFixedSize(40, 40)
-        self.fav_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.fav_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: none;
-                color: {Colors.TEXT_TERTIARY};
-            }}
-            QPushButton:hover {{
-                color: {Colors.ACCENT_PRIMARY};
-            }}
-        """)
+        self.fav_btn = AnimatedPlayerButton("heart", tooltip="Mark as Favorite", base_size=40, icon_size=24)
         self.fav_btn.clicked.connect(self.favorite_toggled.emit)
         title_row.addWidget(self.fav_btn)
         title_row.addStretch()
@@ -193,15 +315,15 @@ class EnhancedPlayerWidget(QWidget):
         center_layout.setContentsMargins(0, 0, 0, 0)
         center_layout.setSpacing(20)
         
-        self.prev_btn = self._create_control_button(Icons.PREVIOUS, "Previous Track (Shift+P)")
+        self.prev_btn = AnimatedPlayerButton(Icons.PREVIOUS, "Previous Track (Shift+P)", base_size=44, icon_size=20)
         self.prev_btn.clicked.connect(self.previous_clicked.emit)
         center_layout.addWidget(self.prev_btn)
         
-        self.play_btn = self._create_play_button()
+        self.play_btn = AnimatedPlayerButton(Icons.PLAY, "Play (Space)", base_size=56, icon_size=28, is_play_btn=True)
         self.play_btn.clicked.connect(self._on_play_pause)
         center_layout.addWidget(self.play_btn)
         
-        self.next_btn = self._create_control_button(Icons.NEXT, "Next Track (Shift+N)")
+        self.next_btn = AnimatedPlayerButton(Icons.NEXT, "Next Track (Shift+N)", base_size=44, icon_size=20)
         self.next_btn.clicked.connect(self.next_clicked.emit)
         center_layout.addWidget(self.next_btn)
         
@@ -214,25 +336,17 @@ class EnhancedPlayerWidget(QWidget):
         volume_layout.setSpacing(6)
         volume_layout.addStretch()
         
-        self.shuffle_btn = self._create_toggle_button(Icons.SHUFFLE, "Shuffle")
+        self.shuffle_btn = AnimatedPlayerButton(Icons.SHUFFLE, "Shuffle", base_size=32, icon_size=18, is_checkable=True)
         self.shuffle_btn.clicked.connect(self._on_shuffle_click)
         volume_layout.addWidget(self.shuffle_btn)
         
-        self.repeat_btn = self._create_toggle_button(Icons.REPEAT, "Repeat")
+        self.repeat_btn = AnimatedPlayerButton(Icons.REPEAT, "Repeat", base_size=32, icon_size=18, is_checkable=True)
         self.repeat_btn.clicked.connect(self._on_repeat_click)
         volume_layout.addWidget(self.repeat_btn)
         
         volume_layout.addSpacing(10)
         
-        self.volume_icon = QPushButton()
-        self.volume_icon.setIcon(get_icon(Icons.VOLUME))
-        self.volume_icon.setIconSize(QSize(18, 18))
-        self.volume_icon.setFixedSize(28, 28)
-        self.volume_icon.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.volume_icon.setStyleSheet(f"""
-            QPushButton {{ background: transparent; border: none; color: {Colors.TEXT_TERTIARY}; }}
-            QPushButton:hover {{ color: {Colors.ACCENT_PRIMARY}; }}
-        """)
+        self.volume_icon = AnimatedPlayerButton(Icons.VOLUME, "Mute/Unmute", base_size=28, icon_size=16)
         self.volume_icon.clicked.connect(self._on_volume_icon_clicked)
         volume_layout.addWidget(self.volume_icon)
         
@@ -258,94 +372,7 @@ class EnhancedPlayerWidget(QWidget):
         main_layout.addLayout(controls_layout)
         self.setLayout(main_layout)
         
-    def _create_toggle_button(self, icon_name: str, tooltip: str) -> QPushButton:
-        """Create a toggleable mode button (shuffle/repeat)"""
-        btn = QPushButton()
-        btn.setIcon(get_icon(icon_name))
-        btn.setIconSize(QSize(18, 18))
-        btn.setFixedSize(32, 32)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setToolTip(tooltip)
-        btn.setCheckable(True)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: none;
-                color: {Colors.TEXT_TERTIARY};
-                border-radius: 4px;
-            }}
-            QPushButton:hover {{
-                background-color: {Colors.BACKGROUND_TERTIARY};
-                color: {Colors.TEXT_PRIMARY};
-            }}
-            QPushButton:checked {{
-                color: {Colors.ACCENT_PRIMARY};
-                background-color: rgba(144, 98, 248, 0.15);
-            }}
-        """)
-        return btn
-    
-    def _create_control_button(self, icon_name: str, tooltip: str) -> QPushButton:
-        """Create control button (Previous/Next)"""
-        btn = QPushButton()
-        btn.setIcon(get_icon(icon_name))
-        btn.setIconSize(QSize(22, 22))
-        btn.setFixedSize(44, 44)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {Colors.BACKGROUND_TERTIARY};
-                color: {Colors.TEXT_PRIMARY};
-                border: 1px solid {Colors.BORDER_COLOR};
-                border-radius: 6px;
-                padding: 0;
-                font-size: 16pt;
-            }}
-            
-            QPushButton:hover {{
-                background-color: {Colors.BACKGROUND_ACCENT};
-                border-color: {Colors.ACCENT_PRIMARY};
-                color: {Colors.ACCENT_PRIMARY};
-            }}
-            
-            QPushButton:pressed {{
-                background-color: {Colors.ACCENT_ACTIVE};
-                border-color: {Colors.ACCENT_ACTIVE};
-            }}
-        """)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setToolTip(tooltip)
-        return btn
-    
-    def _create_play_button(self) -> QPushButton:
-        """Create large play/pause button"""
-        btn = QPushButton()
-        btn.setIcon(get_icon(Icons.PLAY))
-        btn.setIconSize(QSize(28, 28))
-        btn.setFixedSize(56, 56)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 {Colors.ACCENT_HOVER},
-                    stop:1 {Colors.ACCENT_PRIMARY});
-                color: {Colors.TEXT_PRIMARY};
-                border: none;
-                border-radius: 28px;
-                padding: 0;
-                font-weight: bold;
-            }}
-            
-            QPushButton:hover {{
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 {Colors.ACCENT_HOVER},
-                    stop:1 {Colors.ACCENT_HOVER});
-            }}
-            
-            QPushButton:pressed {{
-                background-color: {Colors.ACCENT_ACTIVE};
-            }}
-        """)
-        btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        return btn
+
     
     def _get_progress_style(self) -> str:
         """Get progress slider styling — Spotify-style with purple accent"""
@@ -433,7 +460,8 @@ class EnhancedPlayerWidget(QWidget):
         
     def update_favorite_state(self, is_favorite: bool):
         """Update the heart icon state"""
-        self.fav_btn.setIcon(get_icon("heart-filled" if is_favorite else "heart"))
+        self.fav_btn.icon_name = "heart-filled" if is_favorite else "heart"
+        self.fav_btn.update_icon()
         self.fav_btn.setToolTip("Unfavorite" if is_favorite else "Mark as Favorite")
     
     def set_total_duration(self, seconds: int):
@@ -484,9 +512,10 @@ class EnhancedPlayerWidget(QWidget):
     def update_volume_icon(self, volume: float):
         """Update volume icon based on level"""
         if volume <= 0:
-            self.volume_icon.setIcon(get_icon("volume-mute"))
+            self.volume_icon.icon_name = Icons.MUTE
         else:
-            self.volume_icon.setIcon(get_icon("volume"))
+            self.volume_icon.icon_name = Icons.VOLUME
+        self.volume_icon.update_icon()
 
     def _on_volume_icon_clicked(self):
         """Toggle mute"""
@@ -511,11 +540,12 @@ class EnhancedPlayerWidget(QWidget):
         """Update play/pause button"""
         self.is_playing = is_playing
         if is_playing:
-            self.play_btn.setIcon(get_icon(Icons.PAUSE))
+            self.play_btn.icon_name = Icons.PAUSE
             self.play_btn.setToolTip("Pause (Space)")
         else:
-            self.play_btn.setIcon(get_icon(Icons.PLAY))
+            self.play_btn.icon_name = Icons.PLAY
             self.play_btn.setToolTip("Play (Space)")
+        self.play_btn.update_icon()
     
     def wheelEvent(self, event):
         """Handle mouse wheel for volume control anywhere on the player bar"""
