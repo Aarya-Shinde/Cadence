@@ -71,12 +71,7 @@ class PlaylistWidget(QWidget):
         
         main_layout.addWidget(self.table)
         
-        # Status bar
-        status_layout = QHBoxLayout()
-        self.status_label = QLabel("Ready")
-        status_layout.addWidget(self.status_label)
-        status_layout.addStretch()
-        main_layout.addLayout(status_layout)
+        # Status bar removed to save space
         
         self.setLayout(main_layout)
     
@@ -164,7 +159,7 @@ class PlaylistWidget(QWidget):
                 if item:
                     item.song_data = song
         
-        self.status_label.setText(f"Showing {len(self.filtered_songs)} songs")
+        pass
     
     def _on_song_double_clicked(self, item):
         """Handle double-click on song"""
