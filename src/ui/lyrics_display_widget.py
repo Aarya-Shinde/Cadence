@@ -313,6 +313,7 @@ class LyricsDisplay(QWidget):
                 font-weight: 700;
             }}
         """)
+        self.status_label.hide()
         
         # Floating Retry Button inside container
         self.retry_btn = AnimatedRetryButton(container)
@@ -420,10 +421,13 @@ class LyricsDisplay(QWidget):
         super().enterEvent(event)
         self.retry_btn.show()
         self.retry_btn.raise_()
+        self.status_label.show()
+        self.status_label.raise_()
 
     def leaveEvent(self, event):
         super().leaveEvent(event)
         self.retry_btn.hide()
+        self.status_label.hide()
 
     def _sync_content_width(self):
         """Synchronize inner content width to scroll viewport"""
