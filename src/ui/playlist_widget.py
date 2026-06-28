@@ -3,13 +3,66 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, 
     QTableWidgetItem, QLineEdit, QLabel, QMenu, QPushButton
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QVariantAnimation
 from PyQt6.QtGui import QFont, QColor, QIcon
+from ui.style import Colors
 from ui.icons import get_icon
 from typing import List, Dict
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+class PlaylistActionButton(QPushButton):
+    """Button in playlist actions with hover scaling and color changes"""
+    def __init__(self, icon_name, hover_bg_color, parent=None):
+        super().__init__(parent)
+        self.icon_name = icon_name
+        self.hover_bg_color = hover_bg_color
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFixedSize(26, 26)
+        
+        self.icon_size = 14
+        self.update_icon()
+        
+        self.setStyleSheet(f"""
+            QPushButton {{
+                border: none;
+                background: transparent;
+                border-radius: 4px;
+            }}
+            QPushButton:hover {{
+                background-color: {hover_bg_color};
+            }}
+        """)
+        
+        # Micro-animation for icon size scaling
+        self.anim = QVariantAnimation(self)
+        self.anim.setDuration(100)
+        self.anim.valueChanged.connect(self._animate_icon)
+        
+    def update_icon(self):
+        self.setIcon(get_icon(self.icon_name))
+        self.setIconSize(QSize(self.icon_size, self.icon_size))
+        
+    def _animate_icon(self, value):
+        self.icon_size = value
+        self.setIconSize(QSize(value, value))
+        
+    def enterEvent(self, event):
+        self.anim.stop()
+        self.anim.setStartValue(self.icon_size)
+        self.anim.setEndValue(18)  # scale up from 14 to 18
+        self.anim.start()
+        super().enterEvent(event)
+        
+    def leaveEvent(self, event):
+        self.anim.stop()
+        self.anim.setStartValue(self.icon_size)
+        self.anim.setEndValue(14)  # scale down to 14
+        self.anim.start()
+        super().leaveEvent(event)
+
 
 class PlaylistWidget(QWidget):
     """Song list display widget"""
@@ -25,6 +78,7 @@ class PlaylistWidget(QWidget):
         self.setup_ui()
         self.songs = []
         self.filtered_songs = []
+        self.current_playing_id = -1
     
     def setup_ui(self):
         """Create UI components"""
@@ -91,6 +145,7 @@ class PlaylistWidget(QWidget):
         
         for row, song in enumerate(self.filtered_songs):
             self.table.insertRow(row)
+            is_playing = (song['id'] == self.current_playing_id)
             
             # Title
             title_item = QTableWidgetItem(song['title'])
@@ -123,41 +178,41 @@ class PlaylistWidget(QWidget):
             actions_layout.setSpacing(4)
             
             # Favorite button
-            fav_btn = QPushButton()
             is_fav = bool(song.get('favorite', 0))
-            fav_btn.setIcon(get_icon("heart-filled" if is_fav else "heart"))
+            fav_btn = PlaylistActionButton(
+                "heart-filled" if is_fav else "heart",
+                "rgba(160, 130, 255, 0.2)"
+            )
             fav_btn.setToolTip("Mark as Favorite" if not is_fav else "Unfavorite")
-            fav_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            fav_btn.setStyleSheet("QPushButton { border: none; background: transparent; padding: 2px; }")
             fav_btn.clicked.connect(lambda checked, s=song: self.song_favorite_toggled.emit(s))
             actions_layout.addWidget(fav_btn)
             
             # Delete button
-            delete_btn = QPushButton()
-            delete_btn.setIcon(get_icon("trash"))
+            delete_btn = PlaylistActionButton(
+                "trash",
+                "rgba(255, 60, 60, 0.2)"
+            )
             delete_btn.setToolTip("Delete Song")
-            delete_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            delete_btn.setStyleSheet("""
-                QPushButton {
-                    border: none;
-                    background: transparent;
-                    padding: 2px;
-                }
-                QPushButton:hover {
-                    background-color: rgba(255, 60, 60, 0.2);
-                    border-radius: 4px;
-                }
-            """)
             delete_btn.clicked.connect(lambda checked, s=song: self.song_delete_clicked.emit(s))
             actions_layout.addWidget(delete_btn)
             
             self.table.setCellWidget(row, 5, actions_widget)
             
-            # Store song data in row items for easy access
+            # Store song data in row items for easy access & style text
             for col in range(5):
                 item = self.table.item(row, col)
                 if item:
                     item.song_data = song
+                    if is_playing:
+                        item.setForeground(QColor(Colors.ACCENT_PRIMARY))
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                    else:
+                        item.setForeground(QColor(Colors.TEXT_PRIMARY) if col == 0 else QColor(Colors.TEXT_SECONDARY))
+                        font = item.font()
+                        font.setBold(False)
+                        item.setFont(font)
         
         pass
     
@@ -194,10 +249,29 @@ class PlaylistWidget(QWidget):
         return None
     
     def highlight_song(self, song_id: int):
-        """Highlight a song by ID"""
+        """Highlight a song by ID and style its row text"""
+        self.current_playing_id = song_id
         for row in range(self.table.rowCount()):
             item = self.table.item(row, 0) # Title column
-            if item and hasattr(item, 'song_data') and item.song_data['id'] == song_id:
-                self.table.selectRow(row)
-                self.table.scrollToItem(item)
-                break
+            if item and hasattr(item, 'song_data'):
+                is_playing = (item.song_data['id'] == song_id)
+                
+                # Highlight in table selection
+                if is_playing:
+                    self.table.selectRow(row)
+                    self.table.scrollToItem(item)
+                
+                # Apply foreground colors/bold font to indicate playing state
+                for col in range(5):
+                    col_item = self.table.item(row, col)
+                    if col_item:
+                        if is_playing:
+                            col_item.setForeground(QColor(Colors.ACCENT_PRIMARY))
+                            font = col_item.font()
+                            font.setBold(True)
+                            col_item.setFont(font)
+                        else:
+                            col_item.setForeground(QColor(Colors.TEXT_PRIMARY) if col == 0 else QColor(Colors.TEXT_SECONDARY))
+                            font = col_item.font()
+                            font.setBold(False)
+                            col_item.setFont(font)
