@@ -13,9 +13,8 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QScrollArea, QFrame, QPushButton
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QRect, QSize
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QPropertyAnimation, QRect, QSize, QEasingCurve, QVariantAnimation
 from PyQt6.QtGui import QFont, QPixmap, QColor
-from PyQt6.QtCore import QEasingCurve
 from pathlib import Path
 import logging
 
@@ -25,6 +24,89 @@ from ui.visualizer import AudioVisualizer
 from ui.truncated_label import TruncatedLabel
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# ANIMATED RETRY BUTTON
+# ============================================================================
+
+class AnimatedRetryButton(QPushButton):
+    """Custom animated button for retry fetching album art, consistent with header buttons."""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(36, 36)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip("Retry fetching album art")
+        
+        self.current_icon_size = 16
+        # Start with a semi-transparent dark background for visibility on top of art
+        self.current_bg = QColor(0, 0, 0, 128)
+        
+        # Load icon
+        self.update_icon()
+        
+        # Animation for icon scaling
+        self.icon_anim = QVariantAnimation(self)
+        self.icon_anim.setDuration(120)
+        self.icon_anim.valueChanged.connect(self._animate_icon_size)
+        
+        # Animation for background color fade
+        self.bg_anim = QVariantAnimation(self)
+        self.bg_anim.setDuration(150)
+        self.bg_anim.valueChanged.connect(self._animate_bg_color)
+        
+        self.update_style()
+
+    def update_icon(self):
+        # White icon so it's always visible on top of album arts
+        self.setIcon(get_icon("refresh", color="white"))
+        self.setIconSize(QSize(self.current_icon_size, self.current_icon_size))
+
+    def _animate_icon_size(self, value):
+        self.current_icon_size = value
+        self.setIconSize(QSize(value, value))
+
+    def _animate_bg_color(self, color):
+        self.current_bg = color
+        self.update_style()
+
+    def update_style(self):
+        bg_rgba = f"rgba({self.current_bg.red()}, {self.current_bg.green()}, {self.current_bg.blue()}, {self.current_bg.alphaF()})"
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background-color: {bg_rgba};
+                border-radius: 6px;
+                border: 1px solid transparent;
+            }}
+            QPushButton:hover {{
+                border-color: {Colors.BORDER_LIGHT};
+            }}
+        """)
+
+    def enterEvent(self, event):
+        self.icon_anim.stop()
+        self.icon_anim.setStartValue(self.current_icon_size)
+        self.icon_anim.setEndValue(20)
+        self.icon_anim.start()
+        
+        self.bg_anim.stop()
+        self.bg_anim.setStartValue(self.current_bg)
+        # Transition to Colors.ACCENT_PRIMARY (purple theme)
+        self.bg_anim.setEndValue(QColor(Colors.ACCENT_PRIMARY))
+        self.bg_anim.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.icon_anim.stop()
+        self.icon_anim.setStartValue(self.current_icon_size)
+        self.icon_anim.setEndValue(16)
+        self.icon_anim.start()
+        
+        self.bg_anim.stop()
+        self.bg_anim.setStartValue(self.current_bg)
+        self.bg_anim.setEndValue(QColor(0, 0, 0, 128))
+        self.bg_anim.start()
+        super().leaveEvent(event)
 
 
 # ============================================================================
@@ -61,29 +143,14 @@ class AlbumArtDisplay(QWidget):
         layout.addWidget(self.art_label)
         self.setLayout(layout)
         
-        # Retry button (shown on hover)
-        self.retry_btn = QPushButton(self)
-        self.retry_btn.setIcon(get_icon("refresh", color="white"))
-        self.retry_btn.setIconSize(QSize(24, 24))
-        self.retry_btn.setFixedSize(48, 48)
-        self.retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.retry_btn.setToolTip("Retry fetching album art")
-        self.retry_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: rgba(0, 0, 0, 0.6);
-                border-radius: 24px;
-                border: 2px solid {Colors.ACCENT_PRIMARY};
-            }}
-            QPushButton:hover {{
-                background-color: {Colors.ACCENT_PRIMARY};
-            }}
-        """)
+        # Retry button (shown on hover) - animated & matching header style
+        self.retry_btn = AnimatedRetryButton(self)
         self.retry_btn.clicked.connect(self.retry_requested.emit)
         self.retry_btn.hide()
         
         # Bottom-left corner with padding
         padding = 12
-        self.retry_btn.move(padding, self.size - 48 - padding)
+        self.retry_btn.move(padding, self.size - 36 - padding)
         
     def enterEvent(self, event):
         super().enterEvent(event)
@@ -351,8 +418,13 @@ class LyricsDisplay(QWidget):
         if v_width > 0:
             self.content.setFixedWidth(v_width)
             # Update all labels to re-wrap
+            from PyQt6.sip import isdeleted
             for widget in self.line_widgets:
-                widget.adjustSize()
+                try:
+                    if not isdeleted(widget):
+                        widget.adjustSize()
+                except (RuntimeError, ReferenceError):
+                    pass
 
     def update_time(self, current_time: float):
         """Update active line based on music progress"""
@@ -440,6 +512,8 @@ class LyricsDisplay(QWidget):
             if item.widget():
                 item.widget().deleteLater()
         
+        self.line_widgets = []
+        
         msg = LyricsLine(f"No synced lyrics found for '{title}'")
         msg.set_active(True)
         self.content_layout.addWidget(msg)
@@ -487,39 +561,33 @@ class SongDetailsPanel(QWidget):
         self.visualizer.setFixedHeight(80) # Reduced to prevent window jumps
         left_layout.addWidget(self.visualizer)
         
-        # Song info (Side-by-side)
+        # Song info (Vertical Stack for more text allowance)
         self.info_frame = QFrame()
         self.info_frame.setFixedWidth(400)
-        self.info_frame.setFixedHeight(45) # LOCK HEIGHT to prevent window jumps
+        self.info_frame.setFixedHeight(64) # LOCK HEIGHT to prevent window jumps
         self.info_frame.setStyleSheet(f"""
             QFrame {{
                 background-color: {Colors.BACKGROUND_TERTIARY};
                 border-radius: 12px;
-                padding: 0px 16px;
+                padding: 8px 16px;
             }}
         """)
-        info_layout = QHBoxLayout() # Changed to Horizontal
+        info_layout = QVBoxLayout()
         info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(12)
+        info_layout.setSpacing(2)
         
         self.song_title = TruncatedLabel("No song")
         self.song_title.setFont(Fonts.HEADING_SMALL)
         self.song_title.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-weight: 600;")
-        self.song_title.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.song_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         info_layout.addWidget(self.song_title)
-        
-        # Separator dot
-        self.info_sep = QLabel("•")
-        self.info_sep.setStyleSheet(f"color: {Colors.TEXT_TERTIARY};")
-        info_layout.addWidget(self.info_sep)
         
         self.song_artist = TruncatedLabel("")
         self.song_artist.setFont(Fonts.BODY_SMALL)
         self.song_artist.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
-        self.song_artist.setAlignment(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft)
+        self.song_artist.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         info_layout.addWidget(self.song_artist)
         
-        info_layout.addStretch()
         self.info_frame.setLayout(info_layout)
         left_layout.addWidget(self.info_frame)
         left_layout.addStretch()
@@ -602,7 +670,6 @@ class SongDetailsPanel(QWidget):
         self._current_song_id = -1
         self.song_title.setText("No song playing")
         self.song_artist.setText("")
-        self.song_album.setText("")
         self.album_art.set_placeholder()
         self.lyrics_display.clear()
     
@@ -610,6 +677,5 @@ class SongDetailsPanel(QWidget):
         """Clear content"""
         self.song_title.setText("No song")
         self.song_artist.setText("")
-        self.song_album.setText("")
         self.album_art.clear()
         self.lyrics_display.clear()
