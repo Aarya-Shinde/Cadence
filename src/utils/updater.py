@@ -275,6 +275,10 @@ class Updater:
 setlocal enabledelayedexpansion
 title Cadence Updater
 
+set "LOGFILE=%temp%\\cadence_update.log"
+echo [LOG] Initializing Cadence Update Log > "!LOGFILE!"
+
+(
 echo ============================================================
 echo  Cadence Auto-Updater
 echo ============================================================
@@ -285,7 +289,7 @@ echo [1/7] Waiting for Cadence to close...
 set /a "attempts=0"
 :wait_for_exit
 tasklist /fi "imagename eq {exe_name}" 2>nul | findstr /i "{exe_name}" >nul
-if %errorlevel% equ 0 (
+if !errorlevel! equ 0 (
     set /a "attempts+=1"
     if !attempts! geq 10 (
         echo Force closing remaining Cadence processes...
@@ -307,7 +311,7 @@ mkdir "{staging_dir}"
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
   "try {{ Expand-Archive -LiteralPath '{zip_path}' -DestinationPath '{staging_dir}' -Force; exit 0 }} catch {{ Write-Error $_; exit 1 }}"
 
-if %errorlevel% neq 0 (
+if !errorlevel! neq 0 (
     echo ERROR: Extraction failed. Aborting update.
     rmdir /s /q "{staging_dir}" 2>nul
     goto :cleanup_and_exit
@@ -335,7 +339,7 @@ echo [5/7] Performing clean swap of _internal folder...
 :: Step A: Rename old _internal to _internal_old (instant same-volume rename)
 if exist "{app_dir}\\_internal" (
     move /y "{app_dir}\\_internal" "{app_dir}\\_internal_old" >nul
-    if %errorlevel% neq 0 (
+    if !errorlevel! neq 0 (
         echo ERROR: Could not rename old _internal folder. Is Cadence still running?
         rmdir /s /q "{staging_dir}" 2>nul
         goto :cleanup_and_exit
@@ -344,7 +348,7 @@ if exist "{app_dir}\\_internal" (
 
 :: Step B: Move new _internal from staging into the live app folder
 move /y "{staging_dir}\\Cadence\\_internal" "{app_dir}\\_internal" >nul
-if %errorlevel% neq 0 (
+if !errorlevel! neq 0 (
     echo ERROR: Could not move new _internal into place. Attempting rollback...
     if exist "{app_dir}\\_internal_old" (
         move /y "{app_dir}\\_internal_old" "{app_dir}\\_internal" >nul
@@ -356,7 +360,7 @@ if %errorlevel% neq 0 (
 
 :: Step C: Replace Cadence.exe
 copy /y "{staging_dir}\\Cadence\\Cadence.exe" "{app_dir}\\Cadence.exe" >nul
-if %errorlevel% neq 0 (
+if !errorlevel! neq 0 (
     echo WARNING: Could not replace Cadence.exe. _internal was updated successfully.
 )
 
@@ -377,13 +381,17 @@ echo  Update complete! Launching Cadence...
 echo ============================================================
 echo.
 timeout /t 1 /nobreak >nul
+) >> "!LOGFILE!" 2>&1
+
 start "" "{app_dir}\\{exe_name}"
 goto :eof
 
 :cleanup_and_exit
+(
 echo.
 echo The update was not applied. Your current version is unchanged.
 echo Please restart Cadence manually.
+) >> "!LOGFILE!" 2>&1
 timeout /t 5 /nobreak >nul
 
 :eof
