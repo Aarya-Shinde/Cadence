@@ -318,6 +318,7 @@ class LyricsDisplay(QWidget):
         self.retry_btn = AnimatedRetryButton(container)
         self.retry_btn.setToolTip("Wrong lyrics? Click to re-fetch")
         self.retry_btn.clicked.connect(self.retry_requested.emit)
+        self.retry_btn.hide()
         
         main_layout.addWidget(container, 1)
         self.setLayout(main_layout)
@@ -414,6 +415,15 @@ class LyricsDisplay(QWidget):
         """Ensure width is synced when first shown"""
         super().showEvent(event)
         self._sync_content_width()
+
+    def enterEvent(self, event):
+        super().enterEvent(event)
+        self.retry_btn.show()
+        self.retry_btn.raise_()
+
+    def leaveEvent(self, event):
+        super().leaveEvent(event)
+        self.retry_btn.hide()
 
     def _sync_content_width(self):
         """Synchronize inner content width to scroll viewport"""
