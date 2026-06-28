@@ -20,9 +20,9 @@ class PlaylistActionButton(QPushButton):
         self.icon_name = icon_name
         self.hover_bg_color = hover_bg_color
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedSize(26, 26)
+        self.setFixedSize(20, 20)
         
-        self.icon_size = 14
+        self.icon_size = 12
         self.update_icon()
         
         self.setStyleSheet(f"""
@@ -52,14 +52,14 @@ class PlaylistActionButton(QPushButton):
     def enterEvent(self, event):
         self.anim.stop()
         self.anim.setStartValue(self.icon_size)
-        self.anim.setEndValue(18)  # scale up from 14 to 18
+        self.anim.setEndValue(15)  # scale up from 12 to 15
         self.anim.start()
         super().enterEvent(event)
         
     def leaveEvent(self, event):
         self.anim.stop()
         self.anim.setStartValue(self.icon_size)
-        self.anim.setEndValue(14)  # scale down to 14
+        self.anim.setEndValue(12)  # scale down to 12
         self.anim.start()
         super().leaveEvent(event)
 
@@ -173,9 +173,11 @@ class PlaylistWidget(QWidget):
             
             # Actions cell (Fav + Delete)
             actions_widget = QWidget()
+            actions_widget.setStyleSheet("background: transparent;")
             actions_layout = QHBoxLayout(actions_widget)
-            actions_layout.setContentsMargins(4, 0, 4, 0)
+            actions_layout.setContentsMargins(0, 0, 0, 0)
             actions_layout.setSpacing(4)
+            actions_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
             
             # Favorite button
             is_fav = bool(song.get('favorite', 0))
