@@ -349,19 +349,19 @@ QHeaderView::section:hover {{
 /* ========== SCROLLBARS ========== */
 
 QScrollBar:vertical {{
-    background-color: {Colors.BACKGROUND_PRIMARY};
-    width: 12px;
+    background-color: {Colors.BACKGROUND_SECONDARY};
+    width: 10px;
     border: none;
 }}
 
 QScrollBar::handle:vertical {{
     background-color: {Colors.BORDER_LIGHT};
-    border-radius: 6px;
+    border-radius: 5px;
     min-height: 20px;
 }}
 
 QScrollBar::handle:vertical:hover {{
-    background-color: {Colors.ACCENT_PRIMARY};
+    background-color: {Colors.ACCENT_SUBTLE};
 }}
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
@@ -369,25 +369,33 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     background: none;
 }}
 
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
+
 QScrollBar:horizontal {{
-    background-color: {Colors.BACKGROUND_PRIMARY};
-    height: 12px;
+    background-color: {Colors.BACKGROUND_SECONDARY};
+    height: 10px;
     border: none;
 }}
 
 QScrollBar::handle:horizontal {{
     background-color: {Colors.BORDER_LIGHT};
-    border-radius: 6px;
+    border-radius: 5px;
     min-width: 20px;
 }}
 
 QScrollBar::handle:horizontal:hover {{
-    background-color: {Colors.ACCENT_PRIMARY};
+    background-color: {Colors.ACCENT_SUBTLE};
 }}
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     border: none;
     background: none;
+}}
+
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background: transparent;
 }}
 
 /* ========== LABELS ========== */
