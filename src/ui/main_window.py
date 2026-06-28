@@ -446,52 +446,17 @@ class MainWindow(QMainWindow):
         # Create the unified menu
         self.main_menu = QMenu(self)
         
-        # File submenu
-        file_menu = self.main_menu.addMenu("File")
-        
-        scan_action = file_menu.addAction("Scan Music Folder")
-        scan_action.setIcon(get_icon(Icons.FOLDER))
+        scan_action = self.main_menu.addAction("Scan Music Folder")
         scan_action.triggered.connect(self.on_scan_folder)
         self.addAction(scan_action)  # Add to window so shortcut works
-
-        download_action = file_menu.addAction("Download Song")
-        download_action.setIcon(get_icon(Icons.DOWNLOAD))
-        download_action.triggered.connect(self.on_download_song)
-        self.addAction(download_action)
         
-        file_menu.addSeparator()
-        
-        settings_action = file_menu.addAction("Settings")
-        settings_action.setIcon(get_icon(Icons.SETTINGS))
+        settings_action = self.main_menu.addAction("Settings")
         settings_action.triggered.connect(self.on_open_settings)
         self.addAction(settings_action)
-
-        file_menu.addSeparator()
         
-        exit_action = file_menu.addAction("Exit")
-        exit_action.triggered.connect(self.close)
-        self.addAction(exit_action)
+        self.main_menu.addSeparator()
         
-        # Edit menu
-        edit_menu = self.main_menu.addMenu("Edit")
-        
-        clear_action = edit_menu.addAction("Clear All Songs")
-        clear_action.setIcon(get_icon(Icons.TRASH))
-        clear_action.triggered.connect(self.on_clear_library)
-        self.addAction(clear_action)
-        
-        # Help menu
-        help_menu = self.main_menu.addMenu("Help")
-
-        check_updates_action = help_menu.addAction("Check for Updates")
-        check_updates_action.setIcon(get_icon(Icons.DOWNLOAD))
-        check_updates_action.triggered.connect(self.on_check_updates_manual)
-        self.addAction(check_updates_action)
-
-        help_menu.addSeparator()
-        
-        about_action = help_menu.addAction("About")
-        about_action.setIcon(get_icon(Icons.INFO))
+        about_action = self.main_menu.addAction("About")
         about_action.triggered.connect(self.on_about)
         self.addAction(about_action)
 
