@@ -11,6 +11,7 @@ from pathlib import Path
 import logging
 
 from utils.config import get_config
+from ui.style import ThemeManager
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Settings")
         self.setGeometry(200, 200, 500, 400)
         self.config = get_config()
+        ThemeManager.apply_theme(self)
         
         self.setup_ui()
         self.load_settings()
@@ -58,12 +60,14 @@ class SettingsDialog(QDialog):
         button_layout = QHBoxLayout()
         
         reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.setObjectName("secondaryBtn")
         reset_btn.clicked.connect(self.on_reset_defaults)
         button_layout.addWidget(reset_btn)
         
         button_layout.addStretch()
         
         cancel_btn = QPushButton("Cancel")
+        cancel_btn.setObjectName("secondaryBtn")
         cancel_btn.clicked.connect(self.reject)
         button_layout.addWidget(cancel_btn)
         
@@ -89,6 +93,7 @@ class SettingsDialog(QDialog):
         folder_layout.addWidget(self.music_folder_input)
         
         browse_btn = QPushButton("Browse...")
+        browse_btn.setObjectName("secondaryBtn")
         browse_btn.clicked.connect(self.on_browse_folder)
         folder_layout.addWidget(browse_btn)
         layout.addLayout(folder_layout)
@@ -114,6 +119,27 @@ class SettingsDialog(QDialog):
         self.sort_combo = QComboBox()
         self.sort_combo.addItems(["Artist", "Date Added", "Title"])
         layout.addWidget(self.sort_combo)
+        
+        layout.addSpacing(20)
+        
+        # Clear Library
+        clear_lib_btn = QPushButton("Clear Library Database")
+        clear_lib_btn.setToolTip("Remove all scanned songs from the Cadence library database")
+        clear_lib_btn.setStyleSheet("""
+            QPushButton {
+                background-color: rgba(255, 60, 60, 0.1);
+                border: 1px solid rgba(255, 60, 60, 0.3);
+                color: #FF6B6B;
+                padding: 6px;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: rgba(255, 60, 60, 0.2);
+                border-color: #FF6B6B;
+            }
+        """)
+        clear_lib_btn.clicked.connect(self.on_clear_library)
+        layout.addWidget(clear_lib_btn)
         
         layout.addStretch()
         tab.setLayout(layout)
@@ -149,6 +175,7 @@ class SettingsDialog(QDialog):
         
         # Clear cache button
         clear_btn = QPushButton("Clear Playback Cache")
+        clear_btn.setObjectName("secondaryBtn")
         clear_btn.setToolTip("Clears saved position and last played song")
         clear_btn.clicked.connect(self.on_clear_cache)
         layout.addWidget(clear_btn)
@@ -189,6 +216,7 @@ class SettingsDialog(QDialog):
         
         # Manual check button
         self.check_btn = QPushButton("Check for Updates Now")
+        self.check_btn.setObjectName("secondaryBtn")
         self.check_btn.clicked.connect(self.on_check_updates)
         layout.addWidget(self.check_btn)
         
@@ -334,6 +362,15 @@ class SettingsDialog(QDialog):
             "Cache Cleared",
             "Playback cache cleared. The app will start from the beginning next time."
         )
+    
+    def on_clear_library(self):
+        """Clear music library database via parent window"""
+        if self.parent() and hasattr(self.parent(), 'on_clear_library'):
+            self.parent().on_clear_library()
+            # Also close the settings dialog upon successful library clearing
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Error", "Could not clear library: Parent window reference missing.")
     
     def on_check_updates(self):
         """Trigger manual update check"""
