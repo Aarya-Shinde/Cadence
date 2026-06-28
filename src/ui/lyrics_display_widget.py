@@ -300,44 +300,26 @@ class LyricsDisplay(QWidget):
             }}
         """)
         
-        main_layout.addWidget(container, 1)
-        
-        # Sync Status & Retry (Bottom bar)
-        footer = QHBoxLayout()
-        footer.setContentsMargins(15, 10, 15, 10)
-        
-        self.status_label = QLabel("⦿ Ready")
+        # Floating Status Label inside container (translucent pill style)
+        self.status_label = QLabel("⦿ Ready", container)
         self.status_label.setFont(Fonts.BODY_TINY)
-        self.status_label.setStyleSheet(f"color: {Colors.TEXT_TERTIARY};")
-        footer.addWidget(self.status_label)
-        
-        footer.addStretch()
-        
-        self.retry_btn = QPushButton("Retry")
-        self.retry_btn.setToolTip("Wrong lyrics? Click to re-fetch")
-        self.retry_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.retry_btn.setFixedWidth(80)
-        self.retry_btn.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {Colors.BACKGROUND_TERTIARY};
+        self.status_label.setStyleSheet(f"""
+            QLabel {{
+                background-color: rgba(20, 20, 20, 160);
                 color: {Colors.TEXT_SECONDARY};
                 border: 1px solid {Colors.BORDER_COLOR};
-                border-radius: 6px;
-                padding: 4px 8px;
-                font-size: 9pt;
-                font-weight: 600;
-            }}
-            QPushButton:hover {{
-                background-color: {Colors.ACCENT_PRIMARY};
-                color: white;
-                border: 1px solid {Colors.ACCENT_PRIMARY};
+                border-radius: 12px;
+                padding: 4px 10px;
+                font-weight: 700;
             }}
         """)
+        
+        # Floating Retry Button inside container
+        self.retry_btn = AnimatedRetryButton(container)
+        self.retry_btn.setToolTip("Wrong lyrics? Click to re-fetch")
         self.retry_btn.clicked.connect(self.retry_requested.emit)
-        footer.addWidget(self.retry_btn)
         
-        main_layout.addLayout(footer)
-        
+        main_layout.addWidget(container, 1)
         self.setLayout(main_layout)
         
     def set_lyrics(self, title: str, artist: str, lyrics_text: str):
@@ -379,7 +361,7 @@ class LyricsDisplay(QWidget):
             # Synchronized mode
             self.synced_data = parsed
             self.is_synced = True
-            self.status_label.setText("⦿ Synced")
+            self.update_status("⦿ Synced")
             for i, line in enumerate(parsed):
                 widget = LyricsLine(line['text'])
                 widget.id = i
@@ -388,7 +370,7 @@ class LyricsDisplay(QWidget):
         else:
             # Plain text mode
             self.is_synced = False
-            self.status_label.setText("Plain Text")
+            self.update_status("Plain Text")
             for line in lyrics_text.splitlines():
                 if line.strip():
                     widget = LyricsLine(line.strip())
@@ -402,10 +384,31 @@ class LyricsDisplay(QWidget):
         # Reset to beginning
         QTimer.singleShot(100, lambda: self.update_time(0))
     
+    def update_status(self, text: str):
+        """Update status pill text and adjust position dynamically"""
+        self.status_label.setText(text)
+        self.status_label.adjustSize()
+        margin = 16
+        lx = margin
+        ly = self.height() - self.status_label.height() - margin
+        self.status_label.move(lx, ly)
+
     def resizeEvent(self, event):
-        """Force content width to viewport for word-wrap stability"""
+        """Force content width to viewport for word-wrap stability and position floating overlays"""
         super().resizeEvent(event)
         self._sync_content_width()
+        
+        margin = 16
+        # Position floating retry button in the bottom-right corner
+        bx = self.width() - self.retry_btn.width() - margin
+        by = self.height() - self.retry_btn.height() - margin
+        self.retry_btn.move(bx, by)
+        
+        # Position floating status label in the bottom-left corner
+        self.status_label.adjustSize()
+        lx = margin
+        ly = self.height() - self.status_label.height() - margin
+        self.status_label.move(lx, ly)
 
     def showEvent(self, event):
         """Ensure width is synced when first shown"""
@@ -485,7 +488,7 @@ class LyricsDisplay(QWidget):
 
     def set_loading(self):
         """Show loading state"""
-        self.status_label.setText("Loading...")
+        self.update_status("Loading...")
         
         # STOP SYNC IMMEDIATELY
         self.is_synced = False
@@ -506,7 +509,7 @@ class LyricsDisplay(QWidget):
         
     def set_not_found(self, title: str = ""):
         """Show not found state"""
-        self.status_label.setText("Not found")
+        self.update_status("Lyrics Not Found")
         for i in reversed(range(self.content_layout.count())):
             item = self.content_layout.itemAt(i)
             if item.widget():
@@ -514,14 +517,14 @@ class LyricsDisplay(QWidget):
         
         self.line_widgets = []
         
-        msg = LyricsLine(f"No synced lyrics found for '{title}'")
+        msg = LyricsLine("Lyrics not found")
         msg.set_active(True)
         self.content_layout.addWidget(msg)
         
     def clear(self):
         """Clear lyrics"""
         self.set_lyrics("", "", "")
-        self.status_label.setText("Ready")
+        self.update_status("Ready")
 
 
 # ============================================================================
@@ -539,6 +542,8 @@ class SongDetailsPanel(QWidget):
         super().__init__()
         self._current_song_id = -1
         self._current_song_info = {}
+        self.song_title_str = ""
+        self.song_artist_str = ""
         self.setup_ui()
     
     def setup_ui(self):
@@ -549,48 +554,16 @@ class SongDetailsPanel(QWidget):
         
         # Left: Album art
         left_layout = QVBoxLayout()
-        left_layout.setSpacing(8)
+        left_layout.setSpacing(12)
         
         self.album_art = AlbumArtDisplay(size=400)
         self.album_art.retry_requested.connect(self._on_art_retry_requested)
         left_layout.addWidget(self.album_art)
         
-        # Audio Visualizer (Dual-Layer Scrolling Waveform)
+        # Audio Visualizer (with integrated song details overlay)
         self.visualizer = AudioVisualizer(density=140)
         self.visualizer.setFixedWidth(400)
-        self.visualizer.setFixedHeight(80) # Reduced to prevent window jumps
         left_layout.addWidget(self.visualizer)
-        
-        # Song info (Vertical Stack for more text allowance)
-        self.info_frame = QFrame()
-        self.info_frame.setFixedWidth(400)
-        self.info_frame.setFixedHeight(64) # LOCK HEIGHT to prevent window jumps
-        self.info_frame.setStyleSheet(f"""
-            QFrame {{
-                background-color: {Colors.BACKGROUND_TERTIARY};
-                border-radius: 12px;
-                padding: 8px 16px;
-            }}
-        """)
-        info_layout = QVBoxLayout()
-        info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(2)
-        
-        self.song_title = TruncatedLabel("No song")
-        self.song_title.setFont(Fonts.HEADING_SMALL)
-        self.song_title.setStyleSheet(f"color: {Colors.TEXT_PRIMARY}; font-weight: 600;")
-        self.song_title.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        info_layout.addWidget(self.song_title)
-        
-        self.song_artist = TruncatedLabel("")
-        self.song_artist.setFont(Fonts.BODY_SMALL)
-        self.song_artist.setStyleSheet(f"color: {Colors.TEXT_SECONDARY};")
-        self.song_artist.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-        info_layout.addWidget(self.song_artist)
-        
-        self.info_frame.setLayout(info_layout)
-        left_layout.addWidget(self.info_frame)
-        left_layout.addStretch()
         
         main_layout.addLayout(left_layout)
         
@@ -606,8 +579,8 @@ class SongDetailsPanel(QWidget):
         if self._current_song_id != -1:
             self.retry_lyrics.emit(
                 self._current_song_id,
-                self.song_title.text(),
-                self.song_artist.text()
+                self.song_title_str,
+                self.song_artist_str
             )
 
     def _on_art_retry_requested(self):
@@ -630,8 +603,12 @@ class SongDetailsPanel(QWidget):
         # Update info
         self._current_song_id = song_info.get("id", -1)
         self._current_song_info = song_info
-        self.song_title.setText(song_info.get("title", "Unknown"))
-        self.song_artist.setText(song_info.get("artist", "Unknown Artist"))
+        
+        title = song_info.get("title", "Unknown")
+        artist = song_info.get("artist", "Unknown Artist")
+        self.song_title_str = title
+        self.song_artist_str = artist
+        self.visualizer.set_song_info(title, artist)
         
         # Load album art
         if art_path:
@@ -652,12 +629,12 @@ class SongDetailsPanel(QWidget):
     def set_lyrics(self, lyrics_text: str):
         """Set lyrics content"""
         if not lyrics_text:
-            self.lyrics_display.set_not_found(self.song_title.text())
+            self.lyrics_display.set_not_found(self.song_title_str)
             return
         
         self.lyrics_display.set_lyrics(
-            self.song_title.text(),
-            self.song_artist.text(),
+            self.song_title_str,
+            self.song_artist_str,
             lyrics_text
         )
         
@@ -668,14 +645,16 @@ class SongDetailsPanel(QWidget):
     def clear_song(self):
         """Clear song information and reset to default state"""
         self._current_song_id = -1
-        self.song_title.setText("No song playing")
-        self.song_artist.setText("")
+        self.song_title_str = ""
+        self.song_artist_str = ""
+        self.visualizer.set_song_info("", "")
         self.album_art.set_placeholder()
         self.lyrics_display.clear()
     
     def clear(self):
         """Clear content"""
-        self.song_title.setText("No song")
-        self.song_artist.setText("")
+        self.song_title_str = ""
+        self.song_artist_str = ""
+        self.visualizer.set_song_info("", "")
         self.album_art.clear()
         self.lyrics_display.clear()
