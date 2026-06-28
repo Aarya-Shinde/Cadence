@@ -75,7 +75,6 @@ class RotatingIconLabel(QLabel):
         if self.is_rotating:
             self.is_rotating = False
             self.timer.stop()
-            self.angle = 0.0
             self.update()
             
     def rotate(self):
