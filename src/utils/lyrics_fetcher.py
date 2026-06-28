@@ -83,9 +83,25 @@ class LrcLibFetcher:
         self.timeout = 8
         self.session = requests.Session()
 
+    def _clean_title(self, title: str) -> str:
+        import re
+        # Remove parenthetical / bracketed info which LRCLIB hates
+        title = re.sub(r'\(.*?\)|\[.*?\]', '', title)
+        # Remove common suffixes like "from ..."
+        title = re.sub(r'(?i)\bfrom\b.*', '', title)
+        return ' '.join(title.split()).strip()
+
+    def _clean_artist(self, artist: str) -> str:
+        if not artist: return ""
+        # Take the first artist before comma, ampersand, 'and', 'feat', etc.
+        import re
+        first_art = re.split(r',|&|\band\b|\bfeat\b|\bft\b', artist, flags=re.IGNORECASE)[0]
+        return first_art.strip()
+
     def fetch_lyrics(self, title: str, artist: str) -> Optional[Dict]:
-        """Fetch lyrics using specialized lookup"""
+        """Fetch lyrics using specialized lookup with automatic fallbacks for cleaned names"""
         try:
+            # 1. Try original search first
             params = {
                 "track_name": title,
                 "artist_name": artist,
@@ -98,7 +114,6 @@ class LrcLibFetcher:
             
             if response.status_code == 200:
                 data = response.json()
-                # PRIORITY: Use synced lyrics for synchronization feature!
                 lyrics_text = data.get("syncedLyrics") or data.get("plainLyrics")
                 if lyrics_text:
                     logger.info(f"LRCLIB Match: '{data.get('trackName')}' (Synced: {bool(data.get('syncedLyrics'))})")
@@ -108,6 +123,33 @@ class LrcLibFetcher:
                         "title": data.get("trackName"),
                         "artist": data.get("artistName")
                     }
+            
+            # 2. Try cleaned search if first pass fails
+            cleaned_title = self._clean_title(title)
+            cleaned_artist = self._clean_artist(artist)
+            
+            if cleaned_title != title or cleaned_artist != artist:
+                logger.debug(f"Retrying LRCLIB with cleaned title: '{cleaned_title}' and artist: '{cleaned_artist}'")
+                params = {
+                    "track_name": cleaned_title,
+                    "artist_name": cleaned_artist,
+                }
+                response = self.session.get(
+                    f"{self.base_url}/get",
+                    params=params, 
+                    timeout=self.timeout
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    lyrics_text = data.get("syncedLyrics") or data.get("plainLyrics")
+                    if lyrics_text:
+                        logger.info(f"LRCLIB Cleaned Match: '{data.get('trackName')}' (Synced: {bool(data.get('syncedLyrics'))})")
+                        return {
+                            "lyrics": lyrics_text,
+                            "source": "lrclib",
+                            "title": data.get("trackName"),
+                            "artist": data.get("artistName")
+                        }
             return None
         except Exception as e:
             logger.debug(f"LRCLIB fetch failed: {e}")
@@ -243,19 +285,34 @@ class GeniusLyricsFetcher:
                     # Check if artist name appears in the title (common for YT/Genius hits)
                     artist_in_title = target_artist.lower() in res_title_full.lower() if target_artist else False
                     
+                    # Or check if one artist is a substring of the other (e.g. "Arijit Singh" in "Arijit Singh, Shreya Ghoshal")
+                    artist_substring_match = False
+                    if target_artist and res_artist_full:
+                        clean_t_art = target_artist.lower()
+                        clean_res_art = self._clean_query(res_artist_full).lower()
+                        if clean_t_art in clean_res_art or clean_res_art in clean_t_art:
+                            artist_substring_match = True
+                            
+                        # Also split by common splitters: comma, ampersand, 'and', 'ft', 'feat'
+                        for splitter in [',', '&', ' and ', ' ft ', ' feat ']:
+                            if splitter in clean_t_art:
+                                first_art = clean_t_art.split(splitter)[0].strip()
+                                if first_art in clean_res_art or clean_res_art in first_art:
+                                    artist_substring_match = True
+                    
                     # REFINED MATCH CRITERIA (Avoid Spanish/Translated hits)
                     # 1. Title match must be very high
-                    # 2. Artist match must be high OR artist must be in title
+                    # 2. Artist match must be high OR artist must be in title OR substring match
                     is_match = False
                     
                     # Penalize translated hits if they weren't requested
                     is_translated = any(word in res_title_full.lower() for word in [" (spanish", " (traducción", " (english", " lyrics"])
                     
-                    if t_score > 0.85 and a_score > 0.85:
+                    if t_score > 0.85 and (a_score > 0.85 or artist_substring_match):
                         is_match = True
-                    elif t_score > 0.9 and (a_score > 0.6 or artist_in_title):
+                    elif t_score > 0.9 and (a_score > 0.6 or artist_in_title or artist_substring_match):
                         is_match = True
-                    elif t_score > 0.95 and a_score > 0.4:
+                    elif t_score > 0.95 and (a_score > 0.4 or artist_substring_match):
                         is_match = True
                     
                     # If it's translated but the original artist matches 100%, it might be a hit, 

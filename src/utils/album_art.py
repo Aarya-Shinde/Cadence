@@ -385,28 +385,65 @@ class AlbumArtManager:
         self.extractor = AlbumArtExtractor()
         self.cache = AlbumArtCache(cache_dir, db_path)
     
-    def _fetch_from_itunes(self, title: str, artist: str) -> Optional[bytes]:
+    def _fetch_from_itunes(self, title: str, artist: str, album: str = "") -> Optional[bytes]:
         try:
             import requests
             import urllib.parse
+            import re
             
             if not title or title.lower() in ("unknown", "unknown title"):
                 return None
                 
-            query = f"{title} {artist}".strip()
-            url = f"https://itunes.apple.com/search?term={urllib.parse.quote(query)}&entity=song&limit=1"
+            # 1. Clean the title and artist for maximum iTunes API compatibility
+            clean_title = re.sub(r'\(.*?\)|\[.*?\]', '', title)
+            clean_title = re.sub(r'(?i)\bfrom\b.*', '', clean_title)
+            clean_title = ' '.join(clean_title.split()).strip()
             
-            response = requests.get(url, timeout=5)
-            data = response.json()
-            
-            if data.get('resultCount', 0) > 0:
-                result = data['results'][0]
-                art_url = result.get('artworkUrl100')
-                if art_url:
-                    hires_url = art_url.replace('100x100bb.jpg', '1000x1000bb.jpg')
-                    img_resp = requests.get(hires_url, timeout=10)
-                    if img_resp.status_code == 200:
-                        return img_resp.content
+            clean_artist = artist
+            if artist:
+                clean_artist = re.split(r',|&|\band\b|\bfeat\b|\bft\b', artist, flags=re.IGNORECASE)[0].strip()
+                
+            clean_album = album
+            if album:
+                # Remove brackets/parentheses and common suffix descriptions
+                clean_album = re.sub(r'\(.*?\)|\[.*?\]', '', album)
+                clean_album = re.sub(r'(?i)\b(soundtrack|ost|original motion picture|ep|single)\b.*', '', clean_album)
+                clean_album = ' '.join(clean_album.split()).strip()
+                
+            # Form query passes (incorporating movie/album name as high priority fallback)
+            queries = []
+            if clean_title and clean_album:
+                # E.g. "Kabira Yeh Jawaani Hai Deewani" - highly successful for Bollywood
+                queries.append(f"{clean_title} {clean_album}")
+            if clean_title and clean_artist:
+                queries.append(f"{clean_title} {clean_artist}")
+            if clean_title and clean_album and clean_artist:
+                queries.append(f"{clean_title} {clean_album} {clean_artist}")
+            if title and artist:
+                queries.append(f"{title} {artist}")
+            if clean_title:
+                queries.append(clean_title)
+                
+            for query in queries:
+                query = query.strip()
+                if not query:
+                    continue
+                
+                url = f"https://itunes.apple.com/search?term={urllib.parse.quote(query)}&entity=song&limit=1"
+                response = requests.get(url, timeout=5)
+                if response.status_code != 200:
+                    continue
+                data = response.json()
+                
+                if data.get('resultCount', 0) > 0:
+                    result = data['results'][0]
+                    art_url = result.get('artworkUrl100')
+                    if art_url:
+                        hires_url = art_url.replace('100x100bb.jpg', '1000x1000bb.jpg')
+                        img_resp = requests.get(hires_url, timeout=10)
+                        if img_resp.status_code == 200:
+                            logger.info(f"iTunes Art Match: '{query}' -> '{result.get('trackName')}'")
+                            return img_resp.content
         except Exception as e:
             logger.warning(f"Failed to fetch iTunes art fallback: {e}")
             
@@ -450,7 +487,7 @@ class AlbumArtManager:
                 
                 search_artist = artist if (artist and artist.lower() not in ("unknown", "unknown artist")) else ""
                 
-                image_data = self._fetch_from_itunes(search_title, search_artist)
+                image_data = self._fetch_from_itunes(search_title, search_artist, album)
                 source = "online"
                 
                 # Optionally embed the new artwork back into the file
