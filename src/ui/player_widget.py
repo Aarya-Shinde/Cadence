@@ -51,6 +51,67 @@ class StardustParticle:
         return self.life <= 0
 
 
+class RotatingIconLabel(QLabel):
+    """Custom label that rotates its pixmap continuously when playing"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.angle = 0.0
+        self.is_rotating = False
+        self.original_pixmap = None
+        
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.rotate)
+        
+    def setPixmap(self, pixmap):
+        self.original_pixmap = pixmap
+        super().setPixmap(pixmap)
+        
+    def start_rotation(self):
+        if not self.is_rotating:
+            self.is_rotating = True
+            self.timer.start(16)  # ~60 FPS
+            
+    def stop_rotation(self):
+        if self.is_rotating:
+            self.is_rotating = False
+            self.timer.stop()
+            self.angle = 0.0
+            self.update()
+            
+    def rotate(self):
+        if self.is_rotating:
+            self.angle = (self.angle + 1.0) % 360
+            self.update()
+            
+    def paintEvent(self, event):
+        if self.original_pixmap and not self.original_pixmap.isNull():
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform)
+            
+            # Draw standard stylesheet background/borders first
+            self.style().drawPrimitive(
+                QStyle.PrimitiveElement.PE_Widget,
+                QStyleOptionSlider(),  # generic option is enough for simple background drawing
+                painter,
+                self
+            )
+            
+            # Center of the label
+            cx = self.width() / 2.0
+            cy = self.height() / 2.0
+            
+            painter.translate(cx, cy)
+            painter.rotate(self.angle)
+            
+            # Draw original pixmap centered
+            pw = self.original_pixmap.width()
+            ph = self.original_pixmap.height()
+            painter.drawPixmap(QPointF(-pw / 2.0, -ph / 2.0), self.original_pixmap)
+        else:
+            super().paintEvent(event)
+
+
 class ClickSlider(QSlider):
     """QSlider subclass that jumps to click position, optionally with smooth animation and internal stardust"""
     def __init__(self, orientation, animate_clicks=False, show_stardust=False, parent=None):
@@ -397,7 +458,7 @@ class EnhancedPlayerWidget(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         left_layout.setSpacing(12)
         # Album art placeholder - Main Cadence desktop icon
-        self.album_art_label = QLabel()
+        self.album_art_label = RotatingIconLabel()
         self.album_art_label.setFixedSize(48, 48)
         self.album_art_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         
@@ -715,14 +776,16 @@ class EnhancedPlayerWidget(QWidget):
         self.repeat_toggled.emit(self.is_repeat)
     
     def set_playing_state(self, is_playing: bool):
-        """Update play/pause button"""
+        """Update play/pause button and start/stop desktop icon rotation"""
         self.is_playing = is_playing
         if is_playing:
             self.play_btn.icon_name = Icons.PAUSE
             self.play_btn.setToolTip("Pause (Space)")
+            self.album_art_label.start_rotation()
         else:
             self.play_btn.icon_name = Icons.PLAY
             self.play_btn.setToolTip("Play (Space)")
+            self.album_art_label.stop_rotation()
         self.play_btn.update_icon()
     
     def wheelEvent(self, event):
