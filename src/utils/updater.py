@@ -282,7 +282,19 @@ echo.
 
 :: Wait for the main application process to fully exit
 echo [1/7] Waiting for Cadence to close...
-timeout /t 3 /nobreak >nul
+set /a "attempts=0"
+:wait_for_exit
+tasklist /fi "imagename eq {exe_name}" 2>nul | findstr /i "{exe_name}" >nul
+if %errorlevel% equ 0 (
+    set /a "attempts+=1"
+    if !attempts! geq 10 (
+        echo Force closing remaining Cadence processes...
+        taskkill /f /im "{exe_name}" >nul 2>nul
+    ) else (
+        timeout /t 1 /nobreak >nul
+        goto :wait_for_exit
+    )
+)
 
 :: Clean up any leftover staging/backup dirs from a previous failed attempt
 echo [2/7] Cleaning previous staging data...
