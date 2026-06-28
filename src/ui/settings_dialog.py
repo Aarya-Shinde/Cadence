@@ -465,8 +465,12 @@ class SettingsDialog(QDialog):
         self.update_status_label.setText("Installing... App will restart shortly.")
         result = self._updater.install_update(self._pending_zip_path)
         if result is False:
-            # Running from source — can't auto-update
             self.install_btn.setEnabled(True)
-            self.update_status_label.setText("Cannot auto-update when running from source.")
             from ui.style import Colors
             self.update_status_label.setStyleSheet(f"color: {Colors.ERROR};")
+            
+            import sys
+            if not getattr(sys, "frozen", False):
+                self.update_status_label.setText("Cannot auto-update when running from source.")
+            else:
+                self.update_status_label.setText("Update cancelled or permission denied (UAC).")

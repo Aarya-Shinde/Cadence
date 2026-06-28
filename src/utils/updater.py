@@ -170,7 +170,7 @@ class Updater:
     def install_update(self, zip_path) -> bool:
         """Atomic install: backup → extract to staging → swap → restart.
 
-        The entire sequence is handed off to a detached batch script so
+        The entire sequence is handed off to an elevated detached batch script so
         the running process can exit cleanly before files are replaced.
 
         Args:
@@ -178,7 +178,7 @@ class Updater:
 
         Returns:
             True if the batch script was launched; False if we are not
-            running as a frozen (PyInstaller) executable.
+            running as a frozen (PyInstaller) executable or if UAC failed.
         """
         if not getattr(sys, "frozen", False):
             logger.warning(
@@ -186,35 +186,50 @@ class Updater:
             )
             return False
 
-        current_exe = Path(sys.executable).resolve()
-        app_dir = current_exe.parent          # e.g. …\Cadence\
-        zip_path = Path(zip_path).resolve()
+        try:
+            current_exe = Path(sys.executable).resolve()
+            app_dir = current_exe.parent          # e.g. …\Cadence\
+            zip_path = Path(zip_path).resolve()
 
-        staging_dir = app_dir / "_update_staging"
-        backup_dir  = app_dir / "_update_backup"
-        batch_path  = app_dir / "_do_update.bat"
+            staging_dir = app_dir / "_update_staging"
+            backup_dir  = app_dir / "_update_backup"
+            
+            # Write the batch script to temp directory where we always have write permissions
+            temp_dir = Path(tempfile.gettempdir())
+            batch_path = temp_dir / "_do_update.bat"
 
-        # Write the batch update script
-        batch_content = self._build_batch_script(
-            zip_path=zip_path,
-            app_dir=app_dir,
-            staging_dir=staging_dir,
-            backup_dir=backup_dir,
-            exe_name=current_exe.name,
-        )
-        batch_path.write_text(batch_content, encoding="utf-8")
-        logger.info(f"Update batch script written to {batch_path}")
+            # Write the batch update script
+            batch_content = self._build_batch_script(
+                zip_path=zip_path,
+                app_dir=app_dir,
+                staging_dir=staging_dir,
+                backup_dir=backup_dir,
+                exe_name=current_exe.name,
+            )
+            batch_path.write_text(batch_content, encoding="utf-8")
+            logger.info(f"Update batch script written to {batch_path}")
 
-        # Launch the script detached so it survives our process exit
-        subprocess.Popen(
-            ["cmd.exe", "/C", str(batch_path)],
-            cwd=str(app_dir),
-            creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.DETACHED_PROCESS,
-            close_fds=True,
-        )
+            # Launch the script elevated so it survives our process exit and has permission to modify C:\Program Files
+            import ctypes
+            result = ctypes.windll.shell32.ShellExecuteW(
+                None,
+                "runas",
+                "cmd.exe",
+                f"/c \"{str(batch_path)}\"",
+                str(app_dir),
+                1  # SW_SHOWNORMAL
+            )
+            
+            if int(result) <= 32:
+                logger.warning(f"UAC elevation refused or failed (result code: {result})")
+                return False
 
-        logger.info("Update script launched — exiting application.")
-        sys.exit(0)
+            logger.info("Elevated update script launched — exiting application.")
+            sys.exit(0)
+            return True
+        except Exception as e:
+            logger.error(f"Error launching update script: {e}")
+            return False
 
     # ------------------------------------------------------------------
     # Internal helpers
