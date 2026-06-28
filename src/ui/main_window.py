@@ -428,7 +428,7 @@ class MainWindow(QMainWindow):
         """)
         
         layout = QVBoxLayout()
-        layout.setContentsMargins(16, 12, 16, 12)
+        layout.setContentsMargins(16, 8, 16, 12)
         layout.setSpacing(14)
         
         # ===== PLAYER WIDGET =====
@@ -732,7 +732,7 @@ class MainWindow(QMainWindow):
     
     def on_track_ended(self):
         """Track ended naturally"""
-        self.on_next(auto_next=True)
+        self._bridge.invoke(lambda: self.on_next(auto_next=True))
     
     def _update_position_callback(self, position: float):
         """Position update callback"""
