@@ -3,7 +3,24 @@ For every music lover to play their offline beats
 
 
 
+This project, Cadence, is a modern music player built with Python and PyQt6.
 
+Prerequisites
+To run this project, you'll need Python installed on your Windows system. The project already includes a virtual environment (venv), which is the recommended way to manage dependencies.
+
+How to Run
+Open a Terminal (PowerShell or Command Prompt) in the project root: z:\Projects\Cadence
+Activate the Virtual Environment:
+
+
+.\venv\Scripts\activate
+
+Install Dependencies (if not already installed in the venv):
+
+
+Run the Application:
+
+python src/main.py
 
 
 
