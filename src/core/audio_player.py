@@ -40,7 +40,9 @@ class AudioPlayer:
         self.is_playing = False
         self.is_paused = False
         self.current_duration = 0
-        self.current_position = 0
+        self.current_position = 0.0
+        self.start_time = 0.0
+        self.start_position = 0.0
         self.volume = 0.8  # 0.0 to 1.0
         
         # Callbacks
@@ -71,30 +73,56 @@ class AudioPlayer:
             if self.is_playing or self.is_paused:
                 self.stop()
             
+            # Get duration and sample rate (mutagen for accuracy)
+            sample_rate = 44100
+            try:
+                from mutagen.mp3 import MP3
+                from mutagen.flac import FLAC
+                from mutagen.wave import WAVE
+                from mutagen.mp4 import MP4
+                
+                if file_path.suffix.lower() == '.mp3':
+                    audio = MP3(file_path)
+                    sample_rate = audio.info.sample_rate
+                    self.current_duration = int(audio.info.length) if audio.info.length else 0
+                elif file_path.suffix.lower() == '.flac':
+                    audio = FLAC(file_path)
+                    sample_rate = audio.info.sample_rate
+                    self.current_duration = int(audio.info.length) if audio.info.length else 0
+                elif file_path.suffix.lower() == '.wav':
+                    audio = WAVE(file_path)
+                    sample_rate = audio.info.sample_rate
+                    self.current_duration = int(audio.info.length) if audio.info.length else 0
+                elif file_path.suffix.lower() in {'.m4a', '.aac'}:
+                    audio = MP4(file_path)
+                    sample_rate = audio.info.sample_rate
+                    self.current_duration = int(audio.info.length) if audio.info.length else 0
+                else:
+                    self.current_duration = 0
+            except Exception as e:
+                logger.warning(f"Could not read metadata from mutagen: {e}")
+                self.current_duration = 0
+                
+            # Re-initialize pygame mixer with the file's sample rate to prevent speed/pitch/timing distortion
+            try:
+                current_volume = self.volume
+                pygame.mixer.quit()
+                pygame.mixer.init(frequency=sample_rate)
+                pygame.mixer.music.set_volume(current_volume)
+                logger.info(f"Re-initialized pygame mixer with frequency {sample_rate}Hz")
+            except Exception as e:
+                logger.warning(f"Could not re-initialize pygame mixer with custom frequency: {e}")
+                # Fallback to default init
+                try:
+                    pygame.mixer.init()
+                except:
+                    pass
+            
             # Load the file
             pygame.mixer.music.load(str(file_path))
             self.current_file = str(file_path)
             self.is_playing = False
             self.is_paused = False
-            
-            # Get duration (mutagen for accuracy)
-            try:
-                from mutagen.mp3 import MP3
-                from mutagen.flac import FLAC
-                
-                if file_path.suffix.lower() == '.mp3':
-                    audio = MP3(file_path)
-                elif file_path.suffix.lower() == '.flac':
-                    audio = FLAC(file_path)
-                else:
-                    # For other formats, we'll update during playback
-                    self.current_duration = 0
-                    return True
-                
-                self.current_duration = int(audio.info.length) if audio.info.length else 0
-            except Exception as e:
-                logger.warning(f"Could not get duration: {e}")
-                self.current_duration = 0
             
             logger.info(f"Loaded: {file_path.name} ({self.current_duration}s)")
             return True
@@ -119,13 +147,17 @@ class AudioPlayer:
                 pygame.mixer.music.unpause()
                 self.is_paused = False
                 self.is_playing = True
+                self.start_time = time.time()
+                self.start_position = self.current_position
                 logger.debug("Resumed playback")
             else:
                 # Start from beginning
                 pygame.mixer.music.play()
                 self.is_playing = True
                 self.is_paused = False
-                self.current_position = 0
+                self.current_position = 0.0
+                self.start_time = time.time()
+                self.start_position = 0.0
                 logger.debug("Started playback")
             
             # Start position tracking thread
@@ -151,6 +183,7 @@ class AudioPlayer:
             pygame.mixer.music.pause()
             self.is_paused = True
             self.is_playing = False
+            self.current_position = self.start_position + (time.time() - self.start_time)
             self._stop_position_tracking()
             _prevent_sleep(False)
             logger.debug("Paused playback")
@@ -170,7 +203,8 @@ class AudioPlayer:
             pygame.mixer.music.stop()
             self.is_playing = False
             self.is_paused = False
-            self.current_position = 0
+            self.current_position = 0.0
+            self.start_position = 0.0
             self._stop_position_tracking()
             _prevent_sleep(False)
             logger.debug("Stopped playback")
@@ -204,11 +238,14 @@ class AudioPlayer:
                 pygame.mixer.music.play(0, seconds)
                 
                 self.current_position = seconds
+                self.start_position = seconds
+                self.start_time = time.time()
                 
                 if not was_playing:
                     pygame.mixer.music.pause()
                     self.is_paused = True
                     self.is_playing = False
+                    self._stop_position_tracking()
                 else:
                     self.is_playing = True
                     self.is_paused = False
@@ -216,6 +253,7 @@ class AudioPlayer:
                     self._start_position_tracking()
             else:
                 self.current_position = seconds
+                self.start_position = seconds
             
             logger.info(f"Seeked to {seconds:.1f}s (Forced Reload)")
             return True
@@ -271,11 +309,22 @@ class AudioPlayer:
         def track_position():
             while self.should_track_position:
                 if self.is_playing:
-                    # Update position approximately
-                    self.current_position += 0.1  # Update every 100ms
+                    # Calculate exact position based on elapsed time since start_time
+                    elapsed = time.time() - self.start_time
+                    self.current_position = self.start_position + elapsed
                     
-                    # Check if track ended
-                    if not pygame.mixer.music.get_busy():
+                    # Check if track ended or exceeded duration
+                    track_finished = not pygame.mixer.music.get_busy()
+                    
+                    # Safety check: if current_position exceeds current_duration, stop it!
+                    if self.current_duration > 0 and self.current_position >= self.current_duration:
+                        track_finished = True
+                        
+                    if track_finished:
+                        # Ensure we notify UI of the final position (cap at duration)
+                        self.current_position = min(self.current_position, self.current_duration)
+                        if self.on_position_changed:
+                            self.on_position_changed(self.current_position)
                         self._on_track_ended()
                         break
                     
@@ -283,7 +332,7 @@ class AudioPlayer:
                     if self.on_position_changed:
                         self.on_position_changed(self.current_position)
                 
-                time.sleep(0.1)
+                time.sleep(0.05)
         
         self.position_thread = threading.Thread(target=track_position, daemon=True)
         self.position_thread.start()
@@ -295,7 +344,8 @@ class AudioPlayer:
     def _on_track_ended(self):
         """Handle track ending"""
         self.is_playing = False
-        self.current_position = 0
+        self.current_position = 0.0
+        self.start_position = 0.0
         self._stop_position_tracking()
         _prevent_sleep(False)
         
