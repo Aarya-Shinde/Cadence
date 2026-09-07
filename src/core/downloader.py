@@ -182,9 +182,19 @@ class MusicDownloader:
                 # yt-dlp gives us the pre-conversion filename; swap extension
                 raw = Path(d.get("filename", ""))
                 result_path = raw.with_suffix(".mp3")
+                if progress_callback:
+                    progress_callback(state)
 
-            if progress_callback:
-                progress_callback(state)
+        from utils.ytdlp_updater import get_user_ytdlp_path, download_latest_ytdlp_binary
+
+        # Check if an updated binary exists in AppData
+        user_binary = get_user_ytdlp_path()
+
+        # If updated AppData binary exists, use binary download directly
+        if user_binary.exists():
+            res = self._download_with_binary(url, user_binary, progress_callback, state)
+            if res:
+                return res
 
         ydl_opts = {
             "format": "bestaudio/best",
@@ -195,6 +205,11 @@ class MusicDownloader:
             "no_warnings": True,
             "progress_hooks": [_hook],
             "writethumbnail": True,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "web"]
+                }
+            },
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
@@ -220,7 +235,6 @@ class MusicDownloader:
                 logger.info(f"Downloading: {url}")
                 ydl.download([url])
 
-            # Apply high-res iTunes art if possible, else keep YouTube thumbnail
             if result_path and result_path.exists():
                 state.status = "processing"
                 state.filename = "Fetching high-res album art..."
@@ -236,12 +250,88 @@ class MusicDownloader:
             return result_path
 
         except Exception as exc:
+            exc_str = str(exc)
+            logger.error(f"Download failed for '{url}': {exc_str}")
+
+            # Auto-healing: If 403 Forbidden or extraction fails, automatically fetch latest yt-dlp binary
+            if "403" in exc_str or "Forbidden" in exc_str or "unable to download" in exc_str:
+                logger.warning("Detected HTTP 403 / extractor breakage. Auto-downloading latest yt-dlp binary to AppData...")
+                if download_latest_ytdlp_binary():
+                    updated_binary = get_user_ytdlp_path()
+                    if updated_binary.exists():
+                        logger.info("Retrying download using updated AppData yt-dlp binary...")
+                        return self._download_with_binary(url, updated_binary, progress_callback, state)
+
             state.status = "error"
             state.error  = str(exc)
             if progress_callback:
                 progress_callback(state)
-            logger.error(f"Download failed for '{url}': {exc}")
             return None
+
+    def _download_with_binary(
+        self,
+        url: str,
+        binary_path: Path,
+        progress_callback: Optional[Callable[[DownloadProgress], None]],
+        state: DownloadProgress
+    ) -> Optional[Path]:
+        """Runs download using standalone yt-dlp executable in AppData."""
+        import subprocess
+
+        state.status = "downloading"
+        state.filename = "Downloading via updated yt-dlp..."
+        if progress_callback:
+            progress_callback(state)
+
+        cmd = [
+            str(binary_path),
+            "--format", "bestaudio/best",
+            "--extract-audio",
+            "--audio-format", "mp3",
+            "--audio-quality", "192K",
+            "--output", str(self.output_folder / "%(title)s.%(ext)s"),
+            "--no-playlist",
+            "--restrict-filenames",
+            "--write-thumbnail",
+            "--embed-thumbnail",
+            "--add-metadata",
+            "--no-warnings",
+            "--quiet",
+            "--extractor-args", "youtube:player_client=android,web"
+        ]
+
+        ffmpeg_path = get_ffmpeg_path()
+        if ffmpeg_path:
+            cmd.extend(["--ffmpeg-location", ffmpeg_path])
+
+        cmd.append(url)
+
+        try:
+            logger.info(f"Executing updated binary: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            
+            if result.returncode == 0:
+                # Find output mp3 file in output_folder
+                mp3_files = list(self.output_folder.glob("*.mp3"))
+                if mp3_files:
+                    # Get most recently created MP3
+                    latest_mp3 = max(mp3_files, key=lambda p: p.stat().st_mtime)
+                    state.status = "processing"
+                    state.filename = "Fetching high-res album art..."
+                    if progress_callback:
+                        progress_callback(state)
+                    self._enrich_with_itunes_art(latest_mp3)
+
+                    state.status = "done"
+                    if progress_callback:
+                        progress_callback(state)
+                    return latest_mp3
+
+            logger.error(f"Binary download failed: {result.stderr}")
+        except Exception as e:
+            logger.error(f"Error running updated binary: {e}")
+
+        return None
 
     def _enrich_with_itunes_art(self, file_path: Path):
         """Try to fetch high-res album art from iTunes and embed it."""
