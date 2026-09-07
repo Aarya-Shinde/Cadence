@@ -28,7 +28,7 @@ _REQUIRED_FILES = [
 class Updater:
     """Handle app updates with a robust, atomic, rollback-safe protocol."""
 
-    def __init__(self, current_version: str = "1.1.1"):
+    def __init__(self, current_version: str = "1.1.2"):
         self.current_version = current_version
         self.remote_version_url = (
             "https://api.github.com/repos/Aarya-Shinde/Cadence/releases/latest"
@@ -39,11 +39,11 @@ class Updater:
     # Public API
     # ------------------------------------------------------------------
 
-    def check_for_updates(self) -> Optional[Tuple[str, str]]:
+    def check_for_updates(self) -> Optional[Tuple[str, str, Optional[str]]]:
         """Check if a new version is available from GitHub Releases.
 
         Returns:
-            Tuple of (new_version, download_url) or None if no update.
+            Tuple of (new_version, download_url, sha256_url) or None if no update.
         """
         try:
             response = requests.get(self.remote_version_url, timeout=self.timeout)
